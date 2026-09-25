@@ -1,0 +1,22 @@
+# Python / Jupyter
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Amostras de áudio locais (não versionadas — ver audio_exemplo/.gitkeep)
+audio_exemplo/*.wav
+audio_exemplo/*.ogg
+audio_exemplo/*.mp3
+audio_exemplo/*.flac
+!audio_exemplo/.gitkeep
+
+# OS / editores
+.DS_Store
+.vscode/
+*.swp
