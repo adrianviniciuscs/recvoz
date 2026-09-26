@@ -47,13 +47,13 @@ recvoz> vad 250    # ajusta (vale até reboot; anote o final!)
 ## 3. Calibrar o τ (desconhecido)
 
 `tau` = distância cosseno máxima p/ aceitar como conhecido (k-NN sem c0).
-Default `0.0170`: na base com-voz (10 Adrian + 14 Pedro), mesma-voz até
+Default `0.0170`: na base com-voz (10 locutor A + 14 locutor B), mesma-voz até
 0.0119 e outra-voz desde 0.0219 (leave-one-out 24/24, gap limpo). Valide em sala:
 
-1. `list` → deve mostrar `0: ADRIAN`, `1: PEDRO`.
-2. Você fala 3× de ~15 cm e de ~1 m → tem que dar `ADRIAN` sempre.
+1. `list` → deve mostrar `0: LOCUTOR_A`, `1: LOCUTOR_B`.
+2. Locutor A fala 3× de ~15 cm e de ~1 m → tem que dar `LOCUTOR_A` sempre.
    Anote as distâncias do log (`d=...`).
-3. Pedro fala 2× → `PEDRO` sempre.
+3. Locutor B fala 2× → `LOCUTOR_B` sempre.
 4. Uma 3ª pessoa fala 2× → tem que dar `DESCONHECIDO`.
 5. Regra:
    - Conhecido rejeitado → `tau` **sobe** (ex `tau 0.020`).
@@ -88,8 +88,8 @@ Nome do botão é sempre `VISITANTE`; pelo serial dá p/ nomear
 
 | # | Ação | Esperado no display |
 |---|---|---|
-| 1 | Você fala 3 s | 🙂 `ADRIAN` |
-| 2 | Pedro fala 3 s | 🙂 `PEDRO` |
+| 1 | Locutor A fala 3 s | 🙂 `LOCUTOR_A` |
+| 2 | Locutor B fala 3 s | 🙂 `LOCUTOR_B` |
 | 3 | 3ª pessoa fala 3 s | 🙁 `DESCONHECIDO` |
 | 4 | Aperta GPIO6, pessoa fala 15 s | `FALE 14S…` → 🙂 `VISITANTE` |
 | 5 | Pessoa fala de novo | 🙂 `VISITANTE` |
@@ -104,7 +104,7 @@ Fale a ~15 cm do mic, ambiente o mais quieto possível.
 | `SSD1306 não encontrado` | endereço/fio | `0x3D` é tentado sozinho; se scan não lista nada, confira pull-ups e solda |
 | Nunca dispara (sempre OUVINDO) | `vad` alto ou mic mudo | §2; confira BCLK/WS/SD e CHIPEN→3V3, L/R→GND |
 | Sempre DESCONHECIDO | `tau` baixo ou longe do mic | §3; chegue a 15 cm |
-| Troca ADRIAN↔PEDRO | vozes parecidas na sala / `tau` alto | baixe `tau` um pouco; fale mais longo |
+| Troca LOCUTOR_A↔LOCUTOR_B | vozes parecidas na sala / `tau` alto | baixe `tau` um pouco; fale mais longo |
 | Enroll não termina | soltou o botão tarde? | botão só dispara no **aperto** (espera soltar); via serial use `enroll NOME` |
 | `sem slot extra livre` | 3 extras cheios | `reset` e recadastre |
 | Boot em loop | NVS corrompida (raro) | apague flash: `idf.py erase-flash && idf.py flash` |

@@ -36,6 +36,6 @@ make -C ../../tools/mfcc_hosttest run  # teste de paridade MFCC (gate da F1)
 .venv/bin/python ../../tools/export_mfcc.py  # regenera tabelas (só se mudar o DSP)
 ```
 
-Base de fábrica: **ADRIAN + PEDRO** (36 vetores, `speaker_db/enroll_default.h`).
+Base de fábrica: **LOCUTOR_A + LOCUTOR_B** (24 vetores, `speaker_db/enroll_default.h`).
 Enroll (15 s, botão GPIO6→GND ou `enroll NOME`) salva até 3 extras em NVS
 como `VISITANTE` (ou o nome dado).

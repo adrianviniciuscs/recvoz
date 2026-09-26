@@ -41,7 +41,7 @@ variação fonêmica. É exatamente o `mean_vecs` do notebook.
 
 ## 3. k-NN — quem fala? (`components/speaker_db/`)
 
-Base: **ADRIAN + PEDRO de fábrica** (24 vetores em flash,
+Base: **LOCUTOR_A + LOCUTOR_B de fábrica** (24 vetores em flash,
 `enroll_default.h`) + até **3 extras em NVS** (8 vetores cada).
 Idêntico ao sklearn do notebook (`k=3`, cosseno, peso por distância):
 
@@ -51,10 +51,8 @@ Idêntico ao sklearn do notebook (`k=3`, cosseno, peso por distância):
    $$\mathrm{dist}(a,b) = 1 - \frac{a\cdot b}{|a||b|} \quad \text{(somando } i = 1..38\text{)}$$
 
    O c0 (energia log média) depende do ganho do mic e da distância da
-   boca — não da identidade — e era ele que causava o overlap
-   mesma-voz/outra-voz (com c0: gap −0.001; sem c0: gap limpo
-   0.0185–0.0264). Invariante restante: falar alto/baixo não muda a
-   direção do vetor.
+   boca — não da identidade — por isso fica de fora. Invariante restante:
+   falar alto/baixo não muda a direção do vetor.
 2. **3 vizinhos mais próximos.** Se o mais próximo tem `d ≈ 0`
    (idêntico), voto direto nele.
 3. **Voto ponderado** $\mathrm{peso} = 1/d$ somado por locutor; vence o maior peso.
@@ -91,27 +89,26 @@ botão GPIO6 (ou `enroll NOME`) ──► display "FALE 14S…2S"
   fábrica tem 12–24 por locutor; 7 basta p/ demo).
 - Nome: botão cadastra `VISITANTE`; serial aceita `enroll MARIA`
   (maiúsculas, sem acento na tela, máx 15 letras).
-- **Override:** enroll com nome de fábrica (`enroll ADRIAN`) guarda os
-  vetores ao vivo (mesmo mic/sala/ganho) e tira os de fábrica da votação
-  — essencial quando a base veio de outro microfone. `reset` reverte.
+- **Override:** enroll com nome de fábrica (`enroll LOCUTOR_A`) guarda os
+  vetores ao vivo (mesmo mic/sala/ganho) e tira os de fábrica da votação.
+  `reset` reverte.
 - Limite: 3 extras (`sem slot extra livre` → `reset` e recadastre).
 - `reset` apaga os extras e volta p/ só fábrica.
 
-Recalcular "os MFCC e salvar p/ classificar com kNN depois" — exatamente
-como você descreveu: o enroll **não treina modelo nenhum**, só guarda
-vetores médios; o k-NN os usa na próxima decisão. k-NN é *lazy*: não há
-fase de treino, cadastrar = armazenar.
+Recalcular os MFCC e salvar p/ classificar com kNN depois — o enroll
+**não treina modelo nenhum**, só guarda vetores médios; o k-NN os usa
+na próxima decisão. k-NN é *lazy*: não há fase de treino,
+cadastrar = armazenar.
 
 ## 5. Limitações honestas (p/ a banca perguntar)
 
-- **Overlap fino** (§3): com 2 locutores o gap mesma-voz/outra-voz é
-  estreito; sala ruidosa ou mic longe achata tudo → calibre τ no local.
-- **Canal/ganho:** o c0 saiu da decisão, mas treino e teste ainda devem
-  usar o **mesmo mic à mesma distância** (~15 cm). Vetores de outro
-  microfone se resolvem com enroll ao vivo (§4, override).
+- **Sala real ≠ base:** ruído e eco deslocam os vetores; se o gap
+  fechar, calibre τ no local ou recadastre ao vivo (§4).
+- **Mesmo mic, mesma distância** (~15 cm): trocar de microfone desloca
+  os vetores (resolve com enroll ao vivo).
 - **Latência:** decisão ≈ 2 s de fala + ~0.5 s de DSP; resultado segurado
-  3 s no display. Falar pausado ajuda a encher a janela mais rápido
-  (timeout de 10 s por janela).
+  5 s no display (`hold` ajusta). Fale contínuo: pausas longas estouram
+  o timeout de 10 s da janela.
 - **Janela única:** cada decisão usa 1 janela de 2 s (sem voto majoritário
   — extensão natural se a banca pedir robustez).
 - **Texto independente:** funciona com qualquer frase (não é senha de voz).

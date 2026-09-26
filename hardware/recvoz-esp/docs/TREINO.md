@@ -20,8 +20,9 @@ gravação (INMP441, 16 kHz) ──► audio_exemplo/locutor_<nome>_s<N>.wav
   capturam variação natural de voz/posição).
 - Grave com `tools/grab_raw.py -p /dev/ttyACM0 -d 15` (projeto `inmp441_mic`).
 - Nome: `audio_exemplo/locutor_<nome>_s<numero>.wav` (minúsculas).
-  Arquivos fora da convenção são ignorados pelo export.
-- Base atual: **ADRIAN 2 sessões + PEDRO 4 sessões, tudo no mic**.
+  Arquivos fora da convenção são ignorados pelo export. O `<nome>` vira
+  o nome de fábrica no display.
+- Base atual: **locutor A 2 sessões + locutor B 4 sessões, tudo no mic**.
 
 ## 2. O que o notebook provou
 
@@ -39,8 +40,7 @@ gravação (INMP441, 16 kHz) ──► audio_exemplo/locutor_<nome>_s<N>.wav
 
 k-NN empata com o GMM na média (93.3%) com **menos desvio** — e é *lazy*
 (cadastrar = armazenar vetores, sem treino) — perfeito pro enroll
-embarcado. A queda vs a base antiga (99.4%) é esperada: tudo gravado no
-mesmo mic, com variabilidade real de sessão. Equações em `CLASSIFICACAO.md` §3.
+embarcado. Equações em `CLASSIFICACAO.md` §3.
 
 ## 3. Export: do wav à flash (`tools/export_mfcc.py`)
 
@@ -51,8 +51,7 @@ para cada locutor:
 ```
 
 - **Gate de voz:** só blocos acima do VAD viram protótipo — igual às
-  janelas ao vivo (`capture_voiced`). Silêncio na base deslocava `d`
-  pra 0.01+ (medido); com o gate, a base atual tem **10 Adrian + 14 Pedro**.
+  janelas ao vivo (`capture_voiced`). Base atual: **10 locutor A + 14 locutor B**.
 - Saídas:
   - `components/speaker_db/enroll_default.h` — base de fábrica (vai pra flash);
   - `components/mfcc/mfcc_tables.h` — mel CSR + SOS + Savitzky-Golay (só muda se o DSP mudar);

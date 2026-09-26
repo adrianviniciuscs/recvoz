@@ -162,7 +162,7 @@ k-NN `k=3, metric="cosine", weights="distance"` vive em `speaker_db`.
 
 ## 9. Paridade medida (gate da F1)
 
-`make -C tools/mfcc_hosttest run` — 2 s de `adrian_s1` (caminho int16
+`make -C tools/mfcc_hosttest run` — 2 s de voz do fixture `test_pcm.bin` (caminho int16
 idêntico ao device):
 
 | Estágio | Erro abs máx | Veredito |

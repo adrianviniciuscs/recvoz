@@ -6,7 +6,7 @@ Componente ESP-IDF (sem Arduino/LVGL) que mostra um robozinho no
 | Carinha | Quando usar | Texto padrão |
 |---|---|---|
 | `RECVOZ_FACE_LISTENING` | ouvindo / aguardando voz | `OUVINDO` |
-| `RECVOZ_FACE_HAPPY` | reconheceu o locutor | nome (ex `ADRIAN`) |
+| `RECVOZ_FACE_HAPPY` | reconheceu o locutor | nome (ex `LOCUTOR_A`) |
 | `RECVOZ_FACE_SAD` | desconhecido | `DESCONHECIDO` |
 
 Olhos paramétricos inspirados nos presets do
@@ -35,9 +35,9 @@ ESP_ERROR_CHECK(recvoz_display_init(&cfg));
 recvoz_display_listening();     // OUVINDO
 recvoz_display_happy("MARIA");  // reconheceu (aceita minúsculas e acentos: "João" -> "JOAO")
 recvoz_display_unknown();       // DESCONHECIDO
-// ou genérico: recvoz_display_show(RECVOZ_FACE_HAPPY, "PEDRO");
+// ou genérico: recvoz_display_show(RECVOZ_FACE_HAPPY, "LOCUTOR_B");
 // placar didático (top-2 + barra dmin vs TAU; volta p/ carinha no próximo show):
-recvoz_display_score("ADRIAN", 0.018f, "PEDRO", 0.052f, 0.017f);
+recvoz_display_score("LOCUTOR_A", 0.018f, "LOCUTOR_B", 0.052f, 0.017f);
 ```
 
 - `show()` é **não-bloqueante**: uma task interna anima (morph ~300 ms,
