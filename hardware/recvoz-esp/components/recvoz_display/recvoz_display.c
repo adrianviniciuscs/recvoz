@@ -163,8 +163,8 @@ static void render_score(const char *w, float dmin, const char *r, float drunner
     strncpy(w10, w, 10);
     w10[10] = 0;
     draw_text(2, 1, w10, 2);
-    // dmin + veredito em grande: "0.018 OK" / "0.030 NAO"
-    snprintf(b, sizeof b, "%.3f %s", dmin, dmin > tau ? "NAO" : "OK");
+    // dmin + veredito em grande: "0.018 :-)" / "0.030 :-("
+    snprintf(b, sizeof b, "%.3f %s", dmin, dmin > tau ? ":-(" : ":-)");
     draw_text(2, 17, b, 2);
     // vice pequeno (cabe folgado em x1)
     char rline[24];

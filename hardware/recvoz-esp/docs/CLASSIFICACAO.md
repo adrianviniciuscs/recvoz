@@ -79,7 +79,7 @@ ruído e vetores ao vivo.
 
 Cada decisão expõe `spk_result_t`: vencedor + `dmin`, **vice + `drunner`**,
 `margem = drunner − dmin`. O display alterna carinha (3/5 do `hold`) com
-o **placar em fonte grande**: nome (×2), `dmin` + veredito `OK`/`NAO` (×2),
+o **placar em fonte grande**: nome (×2), `dmin` + veredito `:-)`/`:-(` (×2),
 vice em pequeno e **barra da distância com o traço do τ** (valor exato
 do τ no log serial). Na banca: margem grande = decisão folgada; barra
 encostando no traço = caso duvidoso (bom gancho p/ falar de limiar
