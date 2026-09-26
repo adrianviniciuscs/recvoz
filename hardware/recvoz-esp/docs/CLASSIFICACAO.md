@@ -79,10 +79,11 @@ ruído e vetores ao vivo.
 
 Cada decisão expõe `spk_result_t`: vencedor + `dmin`, **vice + `drunner`**,
 `margem = drunner − dmin`. O display alterna carinha (3/5 do `hold`) com
-o **placar**: `1 NOME d` / `2 NOME d` + veredito + **barra da distância
-com o traço do τ**. Na banca: margem grande = decisão folgada; margem
-apertada ou barra encostando no traço = caso duvidoso (bom gancho p/
-falar de limiar open-set). Log serial mostra o mesmo em 1 linha.
+o **placar em fonte grande**: nome (×2), `dmin` + veredito `OK`/`NAO` (×2),
+vice em pequeno e **barra da distância com o traço do τ** (valor exato
+do τ no log serial). Na banca: margem grande = decisão folgada; barra
+encostando no traço = caso duvidoso (bom gancho p/ falar de limiar
+open-set). Log serial mostra o mesmo em 1 linha.
 
 ## 4. Enroll — cadastrando gente nova
 

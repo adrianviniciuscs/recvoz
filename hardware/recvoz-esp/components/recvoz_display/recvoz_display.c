@@ -153,47 +153,37 @@ static void draw_text(int x, int y, const char *s, int scale)
         } else s++;
     }
 }
-static void draw_text_right(int y, const char *s, int scale)
-{
-    draw_text(LCD_H_RES - (int)strlen(s) * 6 * scale + scale, y, s, scale);
-}
-static void draw_text_centered(int y, const char *s, int scale)
-{
-    int w = (int)strlen(s) * 6 * scale - scale;
-    int x = (LCD_H_RES - w) / 2;
-    draw_text(x < 0 ? 0 : x, y, s, scale);
-}
-
-// Placar didático: top-1/top-2 + barra dmin vs TAU.
+// Placar didático: nome e veredito em x2 (legível na demo), vice em x1,
+// barra dmin vs TAU embaixo. Traço = TAU (valor exato no log serial).
 static void render_score(const char *w, float dmin, const char *r, float drunner, float tau)
 {
-    char b[8];
+    char b[16], w10[11];
     memset(s_fb, 0, sizeof(s_fb));
-    draw_text(2, 2, "1", 1);
-    draw_text(12, 2, w, 1);
-    snprintf(b, sizeof b, "%.3f", dmin);
-    draw_text_right(2, b, 1);
-    draw_text(2, 12, "2", 1);
-    draw_text(12, 12, r, 1);
-    if (drunner < 0) draw_text_right(12, "---", 1);
-    else { snprintf(b, sizeof b, "%.3f", drunner); draw_text_right(12, b, 1); }
-    draw_text_centered(24, dmin > tau ? "DESCONHECIDO" : "CONHECIDO", 1);
+    // nome do vencedor em grande (máx 10 chars = 118 px)
+    strncpy(w10, w, 10);
+    w10[10] = 0;
+    draw_text(2, 1, w10, 2);
+    // dmin + veredito em grande: "0.018 OK" / "0.030 NAO"
+    snprintf(b, sizeof b, "%.3f %s", dmin, dmin > tau ? "NAO" : "OK");
+    draw_text(2, 17, b, 2);
+    // vice pequeno (cabe folgado em x1)
+    char rline[24];
+    if (drunner < 0) snprintf(rline, sizeof rline, "2 %s ---", r);
+    else snprintf(rline, sizeof rline, "2 %s %.3f", r, drunner);
+    rline[21] = 0;
+    draw_text(2, 35, rline, 1);
     // barra: eixo x4..123, preenchido até dmin, traço no TAU
     float maxv = drunner > tau ? drunner : tau;
     maxv *= 1.15f;
     if (maxv < 0.05f) maxv = 0.05f;
-    for (int x = 4; x <= 123; x++) px(x, 42, 1);
+    for (int x = 4; x <= 123; x++) px(x, 50, 1);
     int fill = 4 + (int)(119 * dmin / maxv);
     if (fill > 123) fill = 123;
     for (int x = 4; x <= fill; x++)
-        for (int y = 38; y <= 41; y++) px(x, y, 1);
+        for (int y = 47; y <= 49; y++) px(x, y, 1);
     int tick = 4 + (int)(119 * tau / maxv);
     if (tick > 123) tick = 123;
-    for (int y = 36; y <= 45; y++) px(tick, y, 1);
-    snprintf(b, sizeof b, "%.3f", tau);
-    char tl[16];
-    snprintf(tl, sizeof tl, "TAU %s", b);
-    draw_text(4, 50, tl, 1);
+    for (int y = 44; y <= 52; y++) px(tick, y, 1);
 }
 
 // ---------------- olhos estilo Cozmo ----------------
