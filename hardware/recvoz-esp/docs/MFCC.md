@@ -91,9 +91,7 @@ Para N = 32000: `1 + 32000/256 = 126 frames`.
 
 ### 3.2 Janela de Hann periódica
 
-```c
-w[n] = 0.5 − 0.5·cos(2πn/1024),  n = 0..1023
-```
+$$w[n] = 0.5 - 0.5\cos(2\pi n/1024), \quad n = 0..1023$$
 
 Periódica (`fftbins=True`, denominador N e não N−1), igual a
 `get_window("hann", 1024)`. Ganho coerente 0.5.
@@ -103,9 +101,7 @@ Periódica (`fftbins=True`, denominador N e não N−1), igual a
 FFT radix-2 própria (`fft_fwd`, iterativa com bit-reversal), **sem
 normalização 1/N** — igual a `scipy.fft.rfft` (norma `"backward"`):
 
-```
-X[k] = Σₙ x[n]·w[n]·e^(−j2πkn/1024),   P[k] = Re² + Im²,  k = 0..512
-```
+$$X[k] = \sum_n x[n]\cdot w[n]\cdot e^{-j2\pi kn/1024}, \quad P[k] = Re^2 + Im^2, \quad k = 0..512$$
 
 Verificado com senoide no bin 50: `|X| = 256 = N/4` (Hann 0.5 × N/2),
 igual ao librosa. Motivo de FFT própria em vez de `esp-dsp`: o **mesmo**
@@ -115,13 +111,10 @@ igual ao librosa. Motivo de FFT própria em vez de `esp-dsp`: o **mesmo**
 
 Escala Slaney (`htk=False`): linear abaixo de 1000 Hz, log acima:
 
-```
-mel(f) = 3·f/200,                                  f < 1000
-mel(f) = 15 + ln(f/1000) / (ln(6.4)/27),           f ≥ 1000
-```
+$$\mathrm{mel}(f) = \begin{cases} 3f/200 & f < 1000 \\ 15 + \dfrac{\ln(f/1000)}{\ln(6.4)/27} & f \geq 1000 \end{cases}$$
 
 128 triângulos entre 0 e 8000 Hz com **normalização de área**
-(`enorm = 2/(f[m+1] − f[m−1])`). Detalhe que quebrou a 1ª versão:
+($\mathrm{enorm} = 2/(f[m+1] - f[m-1])$). Detalhe que quebrou a 1ª versão:
 os triângulos amostrados **não zeram nos bins de borda**
 (ex: filtro 7 vale `0.01499` no bin 11, não 0) — por isso embutimos os
 **pesos exatos** em CSR (`MFCC_MEL_START/LEN/W`, maior filtro com
@@ -130,23 +123,17 @@ correção: **5e-05**.
 
 ## 5. Log + piso
 
-```c
-L[m] = 10·log10(max(E[m], 1e-10));  L[m] = max(L[m], max(L) − 80)
-```
+$$L[m] = 10\log_{10}(\max(E[m], 10^{-10})), \quad L[m] = \max(L[m], \max(L) - 80)$$
 
 `ref=1.0` (dB absoluto) e `top_db=80` (padrão `power_to_db`).
 
 ## 6. DCT-II ortonormal → 13 MFCC
 
-```c
-s[k] = Σₙ₌₀¹²⁷ L[n]·cos(π(2n+1)k/256)
-MFCC[k] = s[k]·√(1/128)   (k = 0)
-MFCC[k] = s[k]·√(2/128)   (k ≥ 1)
-```
+$$s[k] = \sum_{n=0}^{127} L[n]\cos\left(\frac{\pi(2n+1)k}{256}\right), \quad \mathrm{MFCC}[k] = s[k]\cdot\begin{cases} \sqrt{1/128} & k = 0 \\ \sqrt{2/128} & k \geq 1 \end{cases}$$
 
 Equivale a `scipy.fft.dct(type=2, norm="ortho")`. Atenção ao c0:
 como o log é absoluto, qualquer ganho global desloca **só o c0**
-(`Δc0 = ΔdB·√128`) — a FFT sem escala (§3.3) existe por causa dele.
+($\Delta c_0 = \Delta\mathrm{dB}\cdot\sqrt{128}$) — a FFT sem escala (§3.3) existe por causa dele.
 
 ## 7. Deltas Savitzky-Golay (largura 9)
 
@@ -159,10 +146,9 @@ Para largura 9 (`half = 4`), a derivada do ajuste polinomial é
 derivada 2ª constante), logo as bordas usam os mesmos pesos nas
 9 1ªs/últimas janelas:
 
-```
-Δ¹[t] = Σᵢ₌₋₄⁴ (i/60)·C[t+i],          denominador 2·Σi² = 60
-Δ²[t] = Σᵢ₌₋₄⁴ SG2[i]·C[t+i],          SG2 = savgol(9, poly2, deriv2)
-```
+$$\Delta^1[t] = \sum_{i=-4}^{4} \frac{i}{60}\cdot C[t+i], \qquad \Delta^2[t] = \sum_{i=-4}^{4} \mathrm{SG2}[i]\cdot C[t+i]$$
+
+(denominador $2\sum i^2 = 60$; $\mathrm{SG2} = \mathrm{savgol}(9, \mathrm{poly2}, \mathrm{deriv2})$).
 
 `SG2 = [0.0606, 0.0152, −0.0173, −0.0368, −0.0433, −0.0368, −0.0173, 0.0152, 0.0606]`
 (simétrico; embutido em `MFCC_SG2`). Erros medidos: Δ 0.16, Δ² 0.15
@@ -170,10 +156,7 @@ derivada 2ª constante), logo as bordas usam os mesmos pesos nas
 
 ## 8. Vetor médio + decisão (ponte p/ F2)
 
-```
-v[d] = (1/126)·Σₜ M[d,t],   d = 0..38
-dist(a,b) = 1 − (a·b)/(|a||b|)      (cosseno, igual ao sklearn)
-```
+$$v[d] = \frac{1}{126}\sum_t M[d,t], \quad d = 0..38, \qquad \mathrm{dist}(a,b) = 1 - \frac{a\cdot b}{|a||b|} \quad \text{(cosseno, igual ao sklearn)}$$
 
 k-NN `k=3, metric="cosine", weights="distance"` vive em `speaker_db`.
 

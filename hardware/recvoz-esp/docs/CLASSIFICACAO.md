@@ -18,9 +18,7 @@ NVS como locutor novo. A partir daí o k-NN já o conhece.
 
 O firmware lê o mic em blocos de 100 ms (1600 amostras) e calcula o RMS:
 
-```
-RMS = √( (1/1600)·Σ x[i]² ),   x em int16
-```
+$$\mathrm{RMS} = \sqrt{\frac{1}{1600}\sum x[i]^2}, \quad x \text{ em int16}$$
 
 - **Disparo:** 3 blocos quentes seguidos (`RMS > vad`, default **300**).
 - **Janela sem silêncio:** após o disparo, acumula blocos **só acima do
@@ -35,9 +33,7 @@ A janela de 32000 amostras passa por `mfcc_process_window` (detalhes em
 `docs/MFCC.md`) e sai uma matriz **39×126** (13 MFCC + 13 Δ + 13 Δ²).
 O classificador usa **1 vetor por janela**, a média temporal:
 
-```
-v[d] = (1/126)·Σₜ M[d,t],   d = 0..38
-```
+$$v[d] = \frac{1}{126}\sum_t M[d,t], \quad d = 0..38$$
 
 Por que a média? A identidade do locutor está no **timbre médio**
 (envelope espectral), não na fonética instantânea — e a média cancela
@@ -45,16 +41,14 @@ variação fonêmica. É exatamente o `mean_vecs` do notebook.
 
 ## 3. k-NN — quem fala? (`components/speaker_db/`)
 
-Base: **ADRIAN + PEDRO de fábrica** (36 vetores em flash,
+Base: **ADRIAN + PEDRO de fábrica** (24 vetores em flash,
 `enroll_default.h`) + até **3 extras em NVS** (8 vetores cada).
 Idêntico ao sklearn do notebook (`k=3`, cosseno, peso por distância):
 
 1. **Distância** a cada vetor cadastrado (cosseno = 1 − similaridade),
    calculada nos dims **1..38 — sem o c0**:
 
-   ```
-   dist(a,b) = 1 − (a·b)/(|a||b|)      (somando i = 1..38)
-   ```
+   $$\mathrm{dist}(a,b) = 1 - \frac{a\cdot b}{|a||b|} \quad \text{(somando } i = 1..38\text{)}$$
 
    O c0 (energia log média) depende do ganho do mic e da distância da
    boca — não da identidade — e era ele que causava o overlap
@@ -63,8 +57,8 @@ Idêntico ao sklearn do notebook (`k=3`, cosseno, peso por distância):
    direção do vetor.
 2. **3 vizinhos mais próximos.** Se o mais próximo tem `d ≈ 0`
    (idêntico), voto direto nele.
-3. **Voto ponderado** `peso = 1/d` somado por locutor; vence o maior peso.
-4. **Limiar de desconhecido:** se `dmin > τ` → `-1` = DESCONHECIDO,
+3. **Voto ponderado** $\mathrm{peso} = 1/d$ somado por locutor; vence o maior peso.
+4. **Limiar de desconhecido:** se $d_{\min} > \tau$ → `-1` = DESCONHECIDO,
    mesmo que o k-NN apontasse alguém. Default **τ = 0.017**
    (meio do gap 0.0119–0.0219; leave-one-out 24/24).
 
@@ -77,8 +71,8 @@ ruído e vetores ao vivo.
 
 ## 3b. Didática: top-2 + margem (placar no display)
 
-Cada decisão expõe `spk_result_t`: vencedor + `dmin`, **vice + `drunner`**,
-`margem = drunner − dmin`. O display alterna carinha (3/5 do `hold`) com
+Cada decisão expõe `spk_result_t`: vencedor + $d_{\min}$, **vice + $d_{\mathrm{vice}}$**,
+$\mathrm{margem} = d_{\mathrm{vice}} - d_{\min}$. O display alterna carinha (3/5 do `hold`) com
 o **placar em fonte grande**: nome (×2), `dmin` + veredito `:-)`/`:-(` (×2),
 vice em pequeno e **barra da distância com o traço do τ** (valor exato
 do τ no log serial). Na banca: margem grande = decisão folgada; barra
