@@ -25,6 +25,7 @@ static const char *TAG = "recvoz";
 #define VAD_CHUNK 1600        // 100 ms @16k
 #define VAD_HOT_N 3           // 300 ms de voz p/ disparar
 #define ENROLL_WINS 7         // 7 x 2 s ~= 15 s
+#define CAP_ITERS 100         // 10 s máx p/ juntar 2 s de voz
 
 static int s_vad_thr = 300;
 static volatile int s_enroll_req; // 1 = console pediu enroll
@@ -40,6 +41,9 @@ static int rms16(const int16_t *p, int n)
     return (int)sqrt((double)s / n);
 }
 
+// Junta 2 s SÓ de blocos acima do VAD (protótipo; definição abaixo).
+static int capture_voiced(int16_t *out, int trace);
+
 // Aguarda voz e captura 1 janela de 2 s. Retorna 1 se botão foi apertado.
 static int listen_window(void)
 {
@@ -53,9 +57,31 @@ static int listen_window(void)
             if (++hot >= VAD_HOT_N) break;
         } else hot = 0;
     }
-    ESP_LOGI(TAG, "voz! capturando 2 s...");
-    ESP_ERROR_CHECK(audio_in_read(s_win, AUDIO_IN_WINDOW_SAMPLES));
+    ESP_LOGI(TAG, "voz! juntando 2 s de fala...");
+    int r = capture_voiced(s_win, 0);
+    if (r < 0) return 0; // botão no meio: enroll
+    if (r == 0) { ESP_LOGI(TAG, "pouca voz (fale mais alto e contínuo)"); return 2; }
     return 1;
+}
+
+// Junta 2 s SÓ de blocos acima do VAD (pula silêncio/reação), p/ a janela
+// não diluir a média com quietude. 1 = ok, 0 = timeout, -1 = botão.
+static int capture_voiced(int16_t *out, int trace)
+{
+    static int16_t chunk[VAD_CHUNK];
+    int got = 0;
+    for (int it = 0; it < CAP_ITERS && got < AUDIO_IN_WINDOW_SAMPLES; it++) {
+        if (gpio_get_level(BTN_GPIO) == 0) return -1;
+        ESP_ERROR_CHECK(audio_in_read(chunk, VAD_CHUNK));
+        int r = rms16(chunk, VAD_CHUNK);
+        if (trace) printf(r > s_vad_thr ? "+%d " : ".%d ", r);
+        if (r > s_vad_thr) {
+            memcpy(out + got, chunk, sizeof(chunk));
+            got += VAD_CHUNK;
+        }
+    }
+    if (trace) printf("\n  voz: %d/%d blocos\n", got / VAD_CHUNK, AUDIO_IN_WINDOW_SAMPLES / VAD_CHUNK);
+    return got >= AUDIO_IN_WINDOW_SAMPLES ? 1 : 0;
 }
 
 static void do_classify(void)
@@ -86,7 +112,14 @@ static void do_enroll(const char *name)
         char lbl[16];
         snprintf(lbl, sizeof lbl, "FALE %dS", (ENROLL_WINS - w) * 2);
         ESP_ERROR_CHECK(recvoz_display_show(RECVOZ_FACE_LISTENING, lbl));
-        ESP_ERROR_CHECK(audio_in_read(s_win, AUDIO_IN_WINDOW_SAMPLES));
+        int tries = 0, r = 0;
+        while ((r = capture_voiced(s_win, 0)) == 0 && tries < 2) {
+            tries++;
+            ESP_LOGI(TAG, "janela %d fraca, repetindo (%d/2)...", w + 1, tries);
+            ESP_ERROR_CHECK(recvoz_display_show(RECVOZ_FACE_LISTENING, "FALE ALTO"));
+        }
+        if (r < 0) { ESP_LOGI(TAG, "enroll cancelado"); return; }
+        if (r == 0) { ESP_LOGI(TAG, "enroll abortado: pouca voz"); return; }
         int nf = mfcc_process_window(s_win, m);
         if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou no enroll"); return; }
         mfcc_mean_vector(m, nf, vecs[w]);
@@ -130,19 +163,14 @@ static int cmd_vad(int argc, char **argv)
     else printf("vad=%d\n", s_vad_thr);
     return 0;
 }
-// Diagnóstico: captura 1 janela de 2 s e mostra RMS/100 ms (fala ou
-// silêncio?) + distância a cada locutor. Fale contínuo durante ela.
+// Diagnóstico: junta 1 janela (só voz) e mostra blocos + distância a cada um.
+// Fale contínuo por ~3 s após o "JUNTE".
 static int cmd_diag(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    printf("capturando 2 s... FALE agora (contínuo)\n");
-    if (audio_in_read(s_win, AUDIO_IN_WINDOW_SAMPLES) != ESP_OK) {
-        printf("audio falhou\n");
-        return 1;
-    }
-    printf("rms/100ms:");
-    for (int k = 0; k < 20; k++) printf(" %d", rms16(s_win + k * VAD_CHUNK, VAD_CHUNK));
-    printf("\n");
+    printf("juntando 2 s de voz... FALE agora (contínuo)\n");
+    int r = capture_voiced(s_win, 1);
+    if (r <= 0) { printf(r < 0 ? "cancelado\n" : "pouca voz\n"); return 1; }
     int nf = mfcc_process_window(s_win, s_m);
     if (nf <= 0) { printf("mfcc falhou\n"); return 1; }
     float mean[MFCC_DIM];
@@ -214,8 +242,11 @@ void app_main(void)
             do_enroll(nm);
             continue;
         }
-        if (listen_window()) {
+        int lw = listen_window();
+        if (lw == 1) {
             do_classify();
+        } else if (lw == 2) {
+            continue; // pouca voz: volta a ouvir sem trocar a carinha
         } else if (s_enroll_req) { // pedido via console durante a escuta
             char nm[16];
             snprintf(nm, sizeof nm, "%s", s_enroll_name);

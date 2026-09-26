@@ -14,7 +14,7 @@ mic 16 kHz ──► VAD (RMS/100 ms, 3 quentes) ──► janela 2 s (32000) �
 Enroll (botão GPIO6 ou `enroll NOME`): 7 janelas de 2 s → 7 médias →
 NVS como locutor novo. A partir daí o k-NN já o conhece.
 
-## 1. VAD — porta de voz (`main/recvoz-esp.c`)
+## 1. VAD + janela só-com-voz (`main/recvoz-esp.c`)
 
 O firmware lê o mic em blocos de 100 ms (1600 amostras) e calcula o RMS:
 
@@ -22,10 +22,12 @@ O firmware lê o mic em blocos de 100 ms (1600 amostras) e calcula o RMS:
 RMS = √( (1/1600)·Σ x[i]² ),   x em int16
 ```
 
-Se `RMS > vad` (default **300** — voz a ~10 cm dá `std > 300`) por
-**3 blocos seguidos** (~300 ms de voz contínua), captura a janela de
-decisão de 2 s. Ruído de fundo (`std < 50`) nunca abre a porta.
-`vad` ajustável via serial, vale por boot (ver `docs/CALIBRACAO.md`).
+- **Disparo:** 3 blocos quentes seguidos (`RMS > vad`, default **300**).
+- **Janela sem silêncio:** após o disparo, acumula blocos **só acima do
+  `vad`** até 32000 amostras (timeout 10 s). Reação lenta, pausa entre
+  frases e rabo de silêncio ficam de fora — sem isso a média diluía
+  (medido: metade da janela em silêncio deslocava `d` p/ 0.01+).
+  Ruído de fundo (`std < 50`) nunca entra na janela.
 
 ## 2. Janela → vetor médio
 
@@ -47,24 +49,30 @@ Base: **ADRIAN + PEDRO de fábrica** (36 vetores em flash,
 `enroll_default.h`) + até **3 extras em NVS** (8 vetores cada).
 Idêntico ao sklearn do notebook (`k=3`, cosseno, peso por distância):
 
-1. **Distância** a cada vetor cadastrado (cosseno = 1 − similaridade):
+1. **Distância** a cada vetor cadastrado (cosseno = 1 − similaridade),
+   calculada nos dims **1..38 — sem o c0**:
 
    ```
-   dist(a,b) = 1 − (a·b)/(|a||b|)
+   dist(a,b) = 1 − (a·b)/(|a||b|)      (somando i = 1..38)
    ```
 
-   Invariante a ganho: falar mais alto ou mais baixo **não muda** a
-   distância (só a direção do vetor importa).
+   O c0 (energia log média) depende do ganho do mic e da distância da
+   boca — não da identidade — e era ele que causava o overlap
+   mesma-voz/outra-voz (com c0: gap −0.001; sem c0: gap limpo
+   0.0185–0.0264). Invariante restante: falar alto/baixo não muda a
+   direção do vetor.
 2. **3 vizinhos mais próximos.** Se o mais próximo tem `d ≈ 0`
    (idêntico), voto direto nele.
 3. **Voto ponderado** `peso = 1/d` somado por locutor; vence o maior peso.
 4. **Limiar de desconhecido:** se `dmin > τ` → `-1` = DESCONHECIDO,
-   mesmo que o k-NN apontasse alguém. Default **τ = 0.0030**.
+   mesmo que o k-NN apontasse alguém. Default **τ = 0.022**
+   (meio do gap; leave-one-out 36/36).
 
-Números offline (leave-one-out nos 36 vetores): τ=0.003 → **36/36**,
-0 rejeições; τ=0.002 rejeita 3 legítimos. Na base, mesma-voz chega a
-0.0026 e outra-voz começa em 0.0016 — **overlap fino**, por isso o τ
-se calibra em sala (`tau` persiste em NVS; ver `docs/CALIBRACAO.md`).
+Números offline (leave-one-out nos 36 vetores, sem c0): τ=0.022 →
+**36/36**, 0 rejeições; mesma-voz até 0.0185, outra-voz desde 0.0264
+(**gap limpo**, sem overlap). Mesmo assim o τ se valida em sala
+(`tau` persiste em NVS; ver `docs/CALIBRACAO.md`), porque sala real tem
+ruído e vetores ao vivo.
 
 ## 4. Enroll — cadastrando gente nova
 
@@ -78,6 +86,9 @@ botão GPIO6 (ou `enroll NOME`) ──► display "FALE 14S…2S"
   fábrica tem 12–24 por locutor; 7 basta p/ demo).
 - Nome: botão cadastra `VISITANTE`; serial aceita `enroll MARIA`
   (maiúsculas, sem acento na tela, máx 15 letras).
+- **Override:** enroll com nome de fábrica (`enroll ADRIAN`) guarda os
+  vetores ao vivo (mesmo mic/sala/ganho) e tira os de fábrica da votação
+  — essencial quando a base veio de outro microfone. `reset` reverte.
 - Limite: 3 extras (`sem slot extra livre` → `reset` e recadastre).
 - `reset` apaga os extras e volta p/ só fábrica.
 
@@ -90,11 +101,12 @@ fase de treino, cadastrar = armazenar.
 
 - **Overlap fino** (§3): com 2 locutores o gap mesma-voz/outra-voz é
   estreito; sala ruidosa ou mic longe achata tudo → calibre τ no local.
-- **Canal:** treino e teste devem usar o **mesmo mic à mesma distância**
-  (~15 cm); trocar de microfone desloca os vetores (por isso o notebook
-  previa CMN p/ o caminho GMM — o k-NN vetorial não usa).
+- **Canal/ganho:** o c0 saiu da decisão, mas treino e teste ainda devem
+  usar o **mesmo mic à mesma distância** (~15 cm). Vetores de outro
+  microfone se resolvem com enroll ao vivo (§4, override).
 - **Latência:** decisão ≈ 2 s de fala + ~0.5 s de DSP; resultado segurado
-  3 s no display.
+  3 s no display. Falar pausado ajuda a encher a janela mais rápido
+  (timeout de 10 s por janela).
 - **Janela única:** cada decisão usa 1 janela de 2 s (sem voto majoritário
   — extensão natural se a banca pedir robustez).
 - **Texto independente:** funciona com qualquer frase (não é senha de voz).

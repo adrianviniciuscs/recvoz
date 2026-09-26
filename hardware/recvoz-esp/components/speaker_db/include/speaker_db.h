@@ -12,7 +12,7 @@ extern "C" {
 #define SPK_EXTRA_MAX 3
 #define SPK_EXTRA_VECS 8   ///< 15 s de enroll = 7 janelas de 2 s (cabe)
 #define SPK_NAME_LEN 16
-#define SPK_TAU_DEFAULT 0.003f ///< limiar desconhecido (calibrar em sala; ver README)
+#define SPK_TAU_DEFAULT 0.022f ///< limiar desconhecido, s/ c0 (gap 0.0185-0.0264; calibrar em sala)
 
 /** @brief nvs_flash_init + carrega extras + tau da NVS. Idempotente. */
 esp_err_t speaker_db_init(void);

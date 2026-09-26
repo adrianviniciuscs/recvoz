@@ -30,8 +30,10 @@ static int s_ok;
 
 static float cos_dist(const float *a, const float *b)
 {
+    // Sem c0 (índice 0 = energia log, depende do ganho/distância do mic,
+    // não da identidade; ele causava o overlap mesma-voz/outra-voz).
     double d = 0, na = 0, nb = 0;
-    for (int i = 0; i < SPK_DIM; i++) {
+    for (int i = 1; i < SPK_DIM; i++) {
         d += (double)a[i] * b[i];
         na += (double)a[i] * a[i];
         nb += (double)b[i] * b[i];
@@ -70,7 +72,17 @@ static esp_err_t load_all(void)
     ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READWRITE, &h), TAG, "nvs open");
     uint32_t bits = 0;
     size_t len = sizeof(bits);
-    if (nvs_get_u32(h, "tau", &bits) == ESP_OK) {
+    uint8_t tauv = 0;
+    nvs_get_u8(h, "tauver", &tauv);
+    if (tauv != 1) {
+        // TAU_DEFAULT mudou (0.003 c/ c0 -> 0.022 s/ c0): ignora valor
+        // antigo, grava o novo + carimba versão.
+        s_tau = SPK_TAU_DEFAULT;
+        memcpy(&bits, &s_tau, 4);
+        nvs_set_u32(h, "tau", bits);
+        nvs_set_u8(h, "tauver", 1);
+        nvs_commit(h);
+    } else if (nvs_get_u32(h, "tau", &bits) == ESP_OK) {
         float t;
         memcpy(&t, &bits, 4);
         if (isfinite(t) && t > 0 && t < 1) s_tau = t;
@@ -251,6 +263,7 @@ esp_err_t speaker_db_set_tau(float tau)
     uint32_t bits;
     memcpy(&bits, &tau, 4);
     esp_err_t r = nvs_set_u32(h, "tau", bits);
+    if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 1);
     if (r == ESP_OK) r = nvs_commit(h);
     nvs_close(h);
     ESP_RETURN_ON_ERROR(r, TAG, "nvs write");

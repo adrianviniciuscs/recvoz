@@ -22,7 +22,7 @@ No log deve aparecer, nesta ordem:
 ```
 recvoz_display: SSD1306 em 0x3C        # display achado no I2C
 audio_in: INMP441 @16000 Hz (BCLK=14 WS=15 SD=16)
-speaker_db: pronto: 2 locutores (tau=0.0030)
+speaker_db: pronto: 2 locutores (tau=0.0220)
 recvoz: recvoz pronto (2 locutores). Fale p/ classificar, GPIO6 p/ enroll.
 ```
 
@@ -46,9 +46,9 @@ recvoz> vad 250    # ajusta (vale até reboot; anote o final!)
 
 ## 3. Calibrar o τ (desconhecido)
 
-`tau` = distância cosseno máxima p/ aceitar como conhecido.
-Default `0.0030`: na base, mesma-voz chega a 0.0026 (leave-one-out 36/36)
-e outra-voz começa em 0.0016 — **há overlap fino**, então calibre em sala:
+`tau` = distância cosseno máxima p/ aceitar como conhecido (k-NN sem c0).
+Default `0.0220`: na base, mesma-voz até 0.0185 e outra-voz desde 0.0264
+(leave-one-out 36/36, gap limpo). Valide em sala:
 
 1. `list` → deve mostrar `0: ADRIAN`, `1: PEDRO`.
 2. Você fala 3× de ~15 cm e de ~1 m → tem que dar `ADRIAN` sempre.
@@ -56,8 +56,10 @@ e outra-voz começa em 0.0016 — **há overlap fino**, então calibre em sala:
 3. Pedro fala 2× → `PEDRO` sempre.
 4. Uma 3ª pessoa fala 2× → tem que dar `DESCONHECIDO`.
 5. Regra:
-   - Conhecido rejeitado → `tau` **sobe** (ex `tau 0.004`).
-   - Desconhecido aceito → `tau` **desce** (ex `tau 0.0025`).
+   - Conhecido rejeitado → `tau` **sobe** (ex `tau 0.025`).
+   - Desconhecido aceito → `tau` **desce** (ex `tau 0.020`).
+   - Se nem assim separar: recadastre com `enroll NOME` no mesmo mic/sala
+     (vetores ao vivo valem mais que τ — ver CLASSIFICACAO §4).
    - `tau` persiste em NVS (sobrevive a reboot).
 
 ```text
@@ -70,6 +72,9 @@ fale 3 s contínuos por decisão — a média de 126 frames estabiliza.
 
 ## 4. Ensaio do enroll
 
+0. Antes: `diag` falando contínuo 3 s — mostra `+RMS` dos blocos
+   aproveitados (`.rms` dos pulados) e `dists:` por locutor. Se a sua
+   distância ao seu nome não for a menor, recadastre (passo 1).
 1. Aperte o botão GPIO6 (ou `enroll MARIA`): display mostra `FALE 14S…2S`.
 2. A pessoa fala **contínuo por ~15 s** (frases normais, mesma distância).
 3. Display abre sorriso + nome; `list` mostra o novo locutor.
