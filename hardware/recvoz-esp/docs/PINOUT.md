@@ -13,10 +13,11 @@
 | 14 | BCLK/SCK | Mic INMP441 (I2S) | O | ~1,024 MHz |
 | 15 | WS/LRCLK | Mic INMP441 (I2S) | O | 16 kHz |
 | 16 | SD/DOUT | Mic INMP441 (I2S) | I | L/R = GND (slot LEFT) |
-| 0 | BOOT (botão) | Enroll / modo cadastro | I + pull-up interno | Ativo em nível baixo; **pino de strapping** (ver §4) |
+| 0 | BOOT (botão) | Reservado / não usado | I + pull-up interno | Recvoz usa botão **externo no GPIO6** (ver §3) |
+| 6 | Enroll (botão externo) | Cadastro de locutor | I + pull-up interno | Botão momentâneo p/ GND, ativo em baixo |
 | — | VU LED | **DESATIVADO** | — | Era GPIO4 no projeto do mic → **conflito com SCL**, removido |
 
-**GPIOs livres (seguros p/ expansão):** 1, 2, 6–13, 17, 18, 21, 33–48 (evitar 19/20, 0, 3, 45, 46 — ver §4).
+**GPIOs livres (seguros p/ expansão):** 1, 2, 7–13, 17, 18, 21, 33–48 (evitar 19/20, 0, 3, 45, 46 — ver §4).
 
 ## 1. Display OLED SSD1306 128×64 (I2C)
 
@@ -53,11 +54,16 @@
 
 | Função | Pino | Comportamento |
 |---|---|---|
-| Enroll | **GPIO0 (botão BOOT da DevKit)** | Press curto (< 1 s) → inicia enroll: display mostra contagem regressiva de **15 s**, grava, recalcula MFCC e salva em NVS como `VISITANTE` |
+| Enroll | **GPIO6 (botão externo p/ GND)** | Press curto → inicia enroll: display mostra contagem regressiva de **15 s** (7 janelas de 2 s), recalcula MFCC e salva em NVS como `VISITANTE` (ou nome via serial) |
 
-- Entrada com pull-up interno, ativo em baixo. Debounce 50 ms no firmware.
-- Se usar placa sem botão BOOT, ligue botão momentâneo entre GPIO0 e GND.
-- futuramente: segurar > 3 s = apagar NVS (`reset`), via comando serial também.
+- Entrada com pull-up interno, ativo em baixo. Debounce 50 ms no firmware
+  (espera soltar antes de começar).
+- Fiação: um lado do botão no **GPIO6**, outro no **GND**. Sem resistor externo.
+- Por que não o BOOT/GPIO0? É pino de *strapping* (nível no boot muda o modo
+  de boot) — botão externo no GPIO6 evita qualquer risco.
+- Fallback sem botão: comando serial `enroll [NOME]` (ver `main/recvoz-esp.c`).
+- Comandos seriais (115200): `enroll [NOME]` | `list` | `reset` |
+  `tau [V]` (limiar desconhecido) | `vad [V]` (limiar de voz, rms).
 
 ## 4. Pinos proibidos / cuidados (ESP32-S3)
 
@@ -89,4 +95,4 @@
 | 2026-09-26 | Display em **5/4** (SDA/SCL), I2C0 400 kHz |
 | 2026-09-26 | Mic em **14/15/16** (BCLK/WS/SD), 16 kHz mono |
 | 2026-09-26 | **VU LED (GPIO4) desativado** — conflito com SCL do display |
-| 2026-09-26 | Enroll no **BOOT/GPIO0**, nome fixo `VISITANTE`, 15 s |
+| 2026-09-26 | Enroll no **botão externo GPIO6** (p/ GND), nome fixo `VISITANTE`, 15 s |

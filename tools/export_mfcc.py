@@ -26,7 +26,15 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 MFCC_DIR = ROOT / "hardware/recvoz-esp/components/mfcc"
+DB_DIR = ROOT / "hardware/recvoz-esp/components/speaker_db"
 TEST_DIR = ROOT / "tools/mfcc_test"
+
+
+def C(v):
+    s = f"{v:.9g}"
+    if "." not in s and "e" not in s and "n" not in s:
+        s += ".0"
+    return s + "f"
 
 # Parâmetros do notebook (não mexer sem re-treinar)
 TARGET_SR = 16000
@@ -83,11 +91,6 @@ def main():
     print("SG order2 interior:", np.round(w2, 6))
 
     with open(MFCC_DIR / "mfcc_tables.h", "w") as f:
-        def C(v):
-            s = f"{v:.9g}"
-            if "." not in s and "e" not in s and "n" not in s:
-                s += ".0"
-            return s + "f"
         f.write("// GERADO por tools/export_mfcc.py — não editar à mão.\n")
         f.write(f"// librosa {librosa.__version__} | sr=16000 bandpass 80-7920 SOS(5) mel128 slaney\n#pragma once\n")
         f.write("#include <stdint.h>\n\n#define MFCC_N_SOS 5\n");
@@ -166,6 +169,24 @@ def main():
              vecs=vecs, labels=np.array(labels),
              meta=np.array(["librosa " + librosa.__version__ + " | chunks 125 frames | mean float32"]))
     print("wrote enroll_vectors.npz")
+
+    # --- 4. defaults de fábrica p/ o firmware (F2): ADRIAN + PEDRO ---
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    order = np.argsort(labels, kind="stable")
+    with open(DB_DIR / "enroll_default.h", "w") as f:
+        f.write("// GERADO por tools/export_mfcc.py — não editar à mão.\n#pragma once\n\n")
+        f.write(f"#define ENROLL_DEFAULT_NSPK 2\n#define ENROLL_DEFAULT_NVEC {len(vecs)}\n")
+        names = [str(labels[i]) for i in order]
+        f.write("static const char *ENROLL_DEFAULT_NAMES[2] = {%s};\n"
+                % ", ".join(f'"{n.upper()}"' for n in sorted(set(names))))
+        f.write("static const float ENROLL_DEFAULT_VECS[%d][39] = {\n" % len(vecs))
+        for i in order:
+            f.write("    {%s},\n" % ", ".join(C(v) for v in vecs[i]))
+        f.write("};\nstatic const uint8_t ENROLL_DEFAULT_LABELS[%d] = {\n    " % len(vecs))
+        name_to_idx = {n: k for k, n in enumerate(sorted(set(n.upper() for n in names)))}
+        f.write(", ".join(str(name_to_idx[n.upper()]) for n in (str(labels[i]) for i in order)))
+        f.write("\n};\n")
+    print("wrote enroll_default.h")
 
 
 if __name__ == "__main__":
