@@ -22,6 +22,7 @@ INMP441 (I2S) → audio_in → mfcc → speaker_db → recvoz_display (SSD1306)
 
 - `docs/PINOUT.md` — **leia primeiro**: mapa de GPIOs, fiação, pinos proibidos.
 - `docs/MFCC.md` — pipeline DSP com equações + paridade numérica.
+- `docs/CLASSIFICACAO.md` — VAD → k-NN → limiar → enroll, de ponta a ponta.
 - `docs/CALIBRACAO.md` — calibrar VAD/τ em sala + roteiro da demo + troubleshooting.
 
 ## Quickstart
