@@ -64,7 +64,9 @@ static const float *factory_vec(int spk, int j)
 static esp_err_t load_all(void)
 {
     nvs_handle_t h;
-    ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READONLY, &h), TAG, "nvs open");
+    // READWRITE (não READONLY): no 1º boot o namespace ainda não existe
+    // e o READONLY falharia com NOT_FOUND, matando o app no ESP_ERROR_CHECK.
+    ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READWRITE, &h), TAG, "nvs open");
     uint32_t bits = 0;
     size_t len = sizeof(bits);
     if (nvs_get_u32(h, "tau", &bits) == ESP_OK) {
