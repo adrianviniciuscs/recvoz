@@ -5,11 +5,13 @@
 // cadastra locutor novo (7 janelas de 2 s ~= 15 s) em NVS.
 //
 // Comandos seriais (115200): enroll/list/reset/tau/vad/diag
+#include <assert.h>
 #include <ctype.h>
 #include <math.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_console.h"
@@ -34,6 +36,11 @@ static char s_enroll_name[16];
 static int16_t s_win[AUDIO_IN_WINDOW_SAMPLES]; // 64 KB
 static float s_m[MFCC_DIM * MFCC_N_FRAMES];    // ~20 KB
 
+// Trava o DSP: mfcc_process_window aloca ~150 KB transientes e usa os
+// buffers estáticos acima — diag (task console) x loop principal não
+// podem rodar DSP juntos (causa "mfcc falhou" por OOM + corrupção).
+static SemaphoreHandle_t s_dsp;
+
 static int rms16(const int16_t *p, int n)
 {
     long long s = 0;
@@ -44,8 +51,8 @@ static int rms16(const int16_t *p, int n)
 // Junta 2 s SÓ de blocos acima do VAD (protótipo; definição abaixo).
 static int capture_voiced(int16_t *out, int trace);
 
-// Aguarda voz e captura 1 janela de 2 s. Retorna 1 se botão foi apertado.
-static int listen_window(void)
+// Aguarda voz (VAD, buffer local — seguro sem trava). 1 = voz, 0 = enroll.
+static int listen_trigger(void)
 {
     static int16_t chunk[VAD_CHUNK];
     int hot = 0;
@@ -57,10 +64,6 @@ static int listen_window(void)
             if (++hot >= VAD_HOT_N) break;
         } else hot = 0;
     }
-    ESP_LOGI(TAG, "voz! juntando 2 s de fala...");
-    int r = capture_voiced(s_win, 0);
-    if (r < 0) return 0; // botão no meio: enroll
-    if (r == 0) { ESP_LOGI(TAG, "pouca voz (fale mais alto e contínuo)"); return 2; }
     return 1;
 }
 
@@ -84,7 +87,7 @@ static int capture_voiced(int16_t *out, int trace)
     return got >= AUDIO_IN_WINDOW_SAMPLES ? 1 : 0;
 }
 
-static void do_classify(void)
+static void do_classify(void) // s_dsp travado pelo chamador
 {
     int nf = mfcc_process_window(s_win, s_m);
     if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou"); return; }
@@ -108,6 +111,7 @@ static void do_enroll(const char *name)
     ESP_LOGI(TAG, "enroll %s: fale por ~15 s", who);
     static float vecs[ENROLL_WINS][MFCC_DIM];
     float m[MFCC_DIM * MFCC_N_FRAMES];
+    xSemaphoreTake(s_dsp, portMAX_DELAY);
     for (int w = 0; w < ENROLL_WINS; w++) {
         char lbl[16];
         snprintf(lbl, sizeof lbl, "FALE %dS", (ENROLL_WINS - w) * 2);
@@ -118,13 +122,14 @@ static void do_enroll(const char *name)
             ESP_LOGI(TAG, "janela %d fraca, repetindo (%d/2)...", w + 1, tries);
             ESP_ERROR_CHECK(recvoz_display_show(RECVOZ_FACE_LISTENING, "FALE ALTO"));
         }
-        if (r < 0) { ESP_LOGI(TAG, "enroll cancelado"); return; }
-        if (r == 0) { ESP_LOGI(TAG, "enroll abortado: pouca voz"); return; }
+        if (r < 0) { ESP_LOGI(TAG, "enroll cancelado"); xSemaphoreGive(s_dsp); return; }
+        if (r == 0) { ESP_LOGI(TAG, "enroll abortado: pouca voz"); xSemaphoreGive(s_dsp); return; }
         int nf = mfcc_process_window(s_win, m);
-        if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou no enroll"); return; }
+        if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou no enroll"); xSemaphoreGive(s_dsp); return; }
         mfcc_mean_vector(m, nf, vecs[w]);
         ESP_LOGI(TAG, "enroll %d/%d", w + 1, ENROLL_WINS);
     }
+    xSemaphoreGive(s_dsp);
     if (speaker_db_enroll(who, (const float *)vecs, ENROLL_WINS) == ESP_OK)
         ESP_ERROR_CHECK(recvoz_display_happy(who));
     vTaskDelay(pdMS_TO_TICKS(3000));
@@ -169,16 +174,18 @@ static int cmd_diag(int argc, char **argv)
 {
     (void)argc; (void)argv;
     printf("juntando 2 s de voz... FALE agora (contínuo)\n");
+    xSemaphoreTake(s_dsp, portMAX_DELAY);
     int r = capture_voiced(s_win, 1);
-    if (r <= 0) { printf(r < 0 ? "cancelado\n" : "pouca voz\n"); return 1; }
+    if (r <= 0) { printf(r < 0 ? "cancelado\n" : "pouca voz\n"); xSemaphoreGive(s_dsp); return 1; }
     int nf = mfcc_process_window(s_win, s_m);
-    if (nf <= 0) { printf("mfcc falhou\n"); return 1; }
+    if (nf <= 0) { printf("mfcc falhou\n"); xSemaphoreGive(s_dsp); return 1; }
     float mean[MFCC_DIM];
     mfcc_mean_vector(s_m, nf, mean);
     printf("c0=%.1f | dists:", mean[0]);
     for (int i = 0; i < speaker_db_count(); i++)
         printf(" %s=%.4f", speaker_db_name(i), speaker_db_dist_to(i, mean));
     printf(" (tau=%.4f)\n", speaker_db_get_tau());
+    xSemaphoreGive(s_dsp);
     return 0;
 }
 
@@ -201,15 +208,8 @@ static void console_init(void)
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
 }
 
-// Botão: nível baixo = apertado (debounce simples).
-static int btn_pressed(void)
-{
-    if (gpio_get_level(BTN_GPIO) != 0) return 0;
-    vTaskDelay(pdMS_TO_TICKS(50));
-    if (gpio_get_level(BTN_GPIO) != 0) return 0;
-    while (gpio_get_level(BTN_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20)); // espera soltar
-    return 1;
-}
+// (botão lido por nível em listen_trigger/capture_voiced; sem espera soltar
+//  p/ não travar o loop — o debounce é o poll de 100 ms dos chunks)
 
 void app_main(void)
 {
@@ -229,31 +229,43 @@ void app_main(void)
     audio_in_config_t ac = AUDIO_IN_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(audio_in_init(&ac));
     ESP_ERROR_CHECK(speaker_db_init());
+    s_dsp = xSemaphoreCreateMutex();
+    assert(s_dsp);
     console_init();
     ESP_LOGI(TAG, "recvoz pronto (%d locutores). Fale p/ classificar, GPIO%d p/ enroll.",
              speaker_db_count(), BTN_GPIO);
 
     while (1) {
-        if (btn_pressed()) { do_enroll("VISITANTE"); continue; }
-        if (s_enroll_req) {
-            char nm[16];
-            snprintf(nm, sizeof nm, "%s", s_enroll_name);
-            s_enroll_req = 0;
-            do_enroll(nm);
+        if (!listen_trigger()) { // enroll pedido (botão ou console)
+            if (s_enroll_req) {
+                char nm[16];
+                snprintf(nm, sizeof nm, "%s", s_enroll_name);
+                s_enroll_req = 0;
+                do_enroll(nm);
+            } else {
+                do_enroll("VISITANTE");
+            }
             continue;
         }
-        int lw = listen_window();
-        if (lw == 1) {
-            do_classify();
-        } else if (lw == 2) {
-            continue; // pouca voz: volta a ouvir sem trocar a carinha
-        } else if (s_enroll_req) { // pedido via console durante a escuta
-            char nm[16];
-            snprintf(nm, sizeof nm, "%s", s_enroll_name);
-            s_enroll_req = 0;
-            do_enroll(nm);
-        } else { // botão apertado durante a escuta
-            do_enroll("VISITANTE");
+        // Voz! Captura + DSP sob trava (diag não entra no meio).
+        ESP_LOGI(TAG, "voz! juntando 2 s de fala...");
+        xSemaphoreTake(s_dsp, portMAX_DELAY);
+        if (s_enroll_req) { // pedido chegou durante o gatilho
+            xSemaphoreGive(s_dsp);
+            continue; // volta ao topo, que desvia p/ enroll
         }
+        int r = capture_voiced(s_win, 0);
+        if (r < 0) { // botão no meio: enroll
+            xSemaphoreGive(s_dsp);
+            do_enroll("VISITANTE");
+            continue;
+        }
+        if (r == 0) {
+            xSemaphoreGive(s_dsp);
+            ESP_LOGI(TAG, "pouca voz (fale mais alto e contínuo)");
+            continue;
+        }
+        do_classify(); // trava ainda presa; solta abaixo
+        xSemaphoreGive(s_dsp);
     }
 }
