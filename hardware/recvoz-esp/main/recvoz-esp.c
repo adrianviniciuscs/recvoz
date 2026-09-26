@@ -161,6 +161,13 @@ static int btn_pressed(void)
 
 void app_main(void)
 {
+    // Apaga o LED RGB built-in (WS2812 no GPIO48 na DevKit S3): pino
+    // flutuante capta ruído que parece dado e acende o LED sozinho.
+    gpio_config_t led = {.pin_bit_mask = 1ULL << 48, .mode = GPIO_MODE_OUTPUT,
+                         .pull_up_en = GPIO_PULLUP_DISABLE,
+                         .pull_down_en = GPIO_PULLDOWN_DISABLE};
+    if (gpio_config(&led) == ESP_OK) gpio_set_level(48, 0);
+
     gpio_config_t bc = {.pin_bit_mask = 1ULL << BTN_GPIO, .mode = GPIO_MODE_INPUT,
                         .pull_up_en = GPIO_PULLUP_ENABLE};
     ESP_ERROR_CHECK(gpio_config(&bc));

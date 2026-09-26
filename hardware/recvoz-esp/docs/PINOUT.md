@@ -15,6 +15,7 @@
 | 16 | SD/DOUT | Mic INMP441 (I2S) | I | L/R = GND (slot LEFT) |
 | 0 | BOOT (botão) | Reservado / não usado | I + pull-up interno | Recvoz usa botão **externo no GPIO6** (ver §3) |
 | 6 | Enroll (botão externo) | Cadastro de locutor | I + pull-up interno | Botão momentâneo p/ GND, ativo em baixo |
+| 48 | LED RGB built-in (WS2812) | **Forçado apagado** | O, nível 0 no boot | Pino flutuante acendia sozinho; firmware trava em 0 |
 | — | VU LED | **DESATIVADO** | — | Era GPIO4 no projeto do mic → **conflito com SCL**, removido |
 
 **GPIOs livres (seguros p/ expansão):** 1, 2, 7–13, 17, 18, 21, 33–48 (evitar 19/20, 0, 3, 45, 46 — ver §4).
