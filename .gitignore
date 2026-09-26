@@ -25,3 +25,6 @@ audio_exemplo/*.flac
 hardware/**/build/
 hardware/**/sdkconfig.old
 hardware/**/.vscode/
+
+# Binários de teste no host (rebuild via make)
+tools/mfcc_hosttest/hosttest
