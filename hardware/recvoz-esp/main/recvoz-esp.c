@@ -109,8 +109,9 @@ static void do_enroll(const char *name)
     char who[SPK_NAME_LEN];
     snprintf(who, sizeof who, "%s", (name && name[0]) ? name : "VISITANTE");
     ESP_LOGI(TAG, "enroll %s: fale por ~15 s", who);
-    static float vecs[ENROLL_WINS][MFCC_DIM];
-    float m[MFCC_DIM * MFCC_N_FRAMES];
+    // Estáticos: a main task tem só 3584 B de stack; m[] tem ~20 KB.
+    // (stack overflow aqui = DoubleException + reset WDT, visto em teste)
+    static float evecs[ENROLL_WINS][MFCC_DIM];
     xSemaphoreTake(s_dsp, portMAX_DELAY);
     for (int w = 0; w < ENROLL_WINS; w++) {
         char lbl[16];
@@ -124,13 +125,13 @@ static void do_enroll(const char *name)
         }
         if (r < 0) { ESP_LOGI(TAG, "enroll cancelado"); xSemaphoreGive(s_dsp); return; }
         if (r == 0) { ESP_LOGI(TAG, "enroll abortado: pouca voz"); xSemaphoreGive(s_dsp); return; }
-        int nf = mfcc_process_window(s_win, m);
+        int nf = mfcc_process_window(s_win, s_m); // s_m: sob trava, seguro
         if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou no enroll"); xSemaphoreGive(s_dsp); return; }
-        mfcc_mean_vector(m, nf, vecs[w]);
+        mfcc_mean_vector(s_m, nf, evecs[w]);
         ESP_LOGI(TAG, "enroll %d/%d", w + 1, ENROLL_WINS);
     }
     xSemaphoreGive(s_dsp);
-    if (speaker_db_enroll(who, (const float *)vecs, ENROLL_WINS) == ESP_OK)
+    if (speaker_db_enroll(who, (const float *)evecs, ENROLL_WINS) == ESP_OK)
         ESP_ERROR_CHECK(recvoz_display_happy(who));
     vTaskDelay(pdMS_TO_TICKS(3000));
 }
