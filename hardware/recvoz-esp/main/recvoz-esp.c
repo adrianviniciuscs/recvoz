@@ -124,6 +124,24 @@ static void do_classify(void) // s_dsp travado pelo chamador
     else
         ESP_LOGI(TAG, "%s d=%.4f (2o %s %.4f, tau=%.4f, margem=%.4f)",
                  wn, r.dmin, rn, r.drunner, tau, r.drunner - r.dmin);
+    // Placar ASCII no monitor (espelho do display, 1:1).
+    {
+        float maxv = r.drunner > tau ? r.drunner : tau;
+        maxv *= 1.15f;
+        if (maxv < 0.05f) maxv = 0.05f;
+        int fill = (int)(30 * r.dmin / maxv), tick = (int)(30 * tau / maxv);
+        if (fill > 30) fill = 30;
+        if (tick > 30) tick = 30;
+        char bar[32];
+        for (int i = 0; i < 30; i++) bar[i] = i < fill ? '#' : (i == tick ? '|' : '-');
+        bar[30] = 0;
+        printf("+------------------------------+\n");
+        printf("| 1 %-10.10s %7.3f |\n", idx >= 0 ? wn : near, r.dmin);
+        printf("| 2 %-10.10s %7.3f |\n", rn, r.runner >= 0 ? r.drunner : -1.0f);
+        printf("| [%s] |\n", bar);
+        printf("| TAU %.3f => %s |\n", tau, idx >= 0 ? "CONHECIDO :-)" : "DESCONHECIDO :-(");
+        printf("+------------------------------+\n");
+    }
     // Carinha 3/5 do tempo + placar top-2 no resto (didático).
     // No DESCONHECIDO o placar mostra quem ele QUASE foi (nearest).
     if (idx < 0) ESP_ERROR_CHECK(recvoz_display_unknown());
