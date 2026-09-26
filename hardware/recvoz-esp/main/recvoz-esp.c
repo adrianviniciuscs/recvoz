@@ -29,6 +29,9 @@ static const char *TAG = "recvoz";
 #define VAD_HOT_N 3           // 300 ms de voz p/ disparar
 #define ENROLL_WINS 7         // 7 x 2 s ~= 15 s
 #define CAP_ITERS 100         // 10 s máx p/ juntar 2 s de voz
+#define RESULT_HOLD_MS 5000   // quanto tempo o resultado fica no display
+
+static int s_hold_ms = RESULT_HOLD_MS;
 
 static int s_vad_thr = 300;
 static volatile int s_enroll_req; // 1 = console pediu enroll
@@ -117,7 +120,7 @@ static void do_classify(void) // s_dsp travado pelo chamador
         ESP_LOGI(TAG, "reconhecido: %s (d=%.4f)", speaker_db_name(idx), dist);
         ESP_ERROR_CHECK(recvoz_display_happy(speaker_db_name(idx)));
     }
-    vTaskDelay(pdMS_TO_TICKS(3000)); // segura o resultado no display
+    vTaskDelay(pdMS_TO_TICKS(s_hold_ms)); // segura o resultado no display
 }
 
 static void do_enroll(const char *name)
@@ -186,6 +189,12 @@ static int cmd_vad(int argc, char **argv)
     else printf("vad=%d\n", s_vad_thr);
     return 0;
 }
+static int cmd_hold(int argc, char **argv)
+{
+    if (argc > 1) { s_hold_ms = atoi(argv[1]); printf("hold=%d ms\n", s_hold_ms); }
+    else printf("hold=%d ms\n", s_hold_ms);
+    return 0;
+}
 // Diagnóstico: junta 1 janela (só voz) e mostra blocos + distância a cada um.
 // Fale contínuo por ~3 s após o "JUNTE".
 static int cmd_diag(int argc, char **argv)
@@ -220,9 +229,10 @@ static void console_init(void)
         {.command = "reset", .help = "apaga extras (volta p/ fabrica)", .hint = NULL, .func = cmd_reset, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "tau", .help = "limiar desconhecido: tau [V]", .hint = NULL, .func = cmd_tau, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "vad", .help = "limiar de voz (rms): vad [V]", .hint = NULL, .func = cmd_vad, .argtable = NULL, .func_w_context = NULL, .context = NULL},
+        {.command = "hold", .help = "tempo do resultado no display (ms): hold [MS]", .hint = NULL, .func = cmd_hold, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "diag", .help = "captura 2 s e mostra rms + distancias", .hint = NULL, .func = cmd_diag, .argtable = NULL, .func_w_context = NULL, .context = NULL},
     };
-    for (int i = 0; i < 6; i++) ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[i]));
+    for (int i = 0; i < 7; i++) ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[i]));
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
 }
 
