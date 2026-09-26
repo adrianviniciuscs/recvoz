@@ -83,7 +83,7 @@ o **placar em fonte grande**: nome (×2), `dmin` + veredito `:-)`/`:-(` (×2),
 vice em pequeno e **barra da distância com o traço do τ** (valor exato
 do τ no log serial). Na banca: margem grande = decisão folgada; barra
 encostando no traço = caso duvidoso (bom gancho p/ falar de limiar
-open-set). Log serial mostra o mesmo em 1 linha.
+open-set). O monitor imprime o placar em ASCII espelhando o display.
 
 ## 4. Enroll — cadastrando gente nova
 
