@@ -4,7 +4,7 @@
 // k-NN (speaker_db) -> carinha no display. Botão GPIO6 (ou `enroll`)
 // cadastra locutor novo (7 janelas de 2 s ~= 15 s) em NVS.
 //
-// Comandos seriais (115200): enroll [NOME] | list | reset | tau [V] | vad [V]
+// Comandos seriais (115200): enroll/list/reset/tau/vad/diag
 #include <ctype.h>
 #include <math.h>
 #include <string.h>
@@ -102,7 +102,7 @@ static int cmd_enroll(int argc, char **argv)
 {
     snprintf(s_enroll_name, sizeof s_enroll_name, "%s", argc > 1 ? argv[1] : "VISITANTE");
     s_enroll_req = 1;
-    printf("enroll %s agendado (pira o botão ou aguarde o loop)\n", s_enroll_name);
+    printf("enroll %s agendado (aperte o botão ou aguarde o loop)\n", s_enroll_name);
     return 0;
 }
 static int cmd_list(int argc, char **argv)
@@ -130,6 +130,29 @@ static int cmd_vad(int argc, char **argv)
     else printf("vad=%d\n", s_vad_thr);
     return 0;
 }
+// Diagnóstico: captura 1 janela de 2 s e mostra RMS/100 ms (fala ou
+// silêncio?) + distância a cada locutor. Fale contínuo durante ela.
+static int cmd_diag(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    printf("capturando 2 s... FALE agora (contínuo)\n");
+    if (audio_in_read(s_win, AUDIO_IN_WINDOW_SAMPLES) != ESP_OK) {
+        printf("audio falhou\n");
+        return 1;
+    }
+    printf("rms/100ms:");
+    for (int k = 0; k < 20; k++) printf(" %d", rms16(s_win + k * VAD_CHUNK, VAD_CHUNK));
+    printf("\n");
+    int nf = mfcc_process_window(s_win, s_m);
+    if (nf <= 0) { printf("mfcc falhou\n"); return 1; }
+    float mean[MFCC_DIM];
+    mfcc_mean_vector(s_m, nf, mean);
+    printf("c0=%.1f | dists:", mean[0]);
+    for (int i = 0; i < speaker_db_count(); i++)
+        printf(" %s=%.4f", speaker_db_name(i), speaker_db_dist_to(i, mean));
+    printf(" (tau=%.4f)\n", speaker_db_get_tau());
+    return 0;
+}
 
 static void console_init(void)
 {
@@ -144,8 +167,9 @@ static void console_init(void)
         {.command = "reset", .help = "apaga extras (volta p/ fabrica)", .hint = NULL, .func = cmd_reset, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "tau", .help = "limiar desconhecido: tau [V]", .hint = NULL, .func = cmd_tau, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "vad", .help = "limiar de voz (rms): vad [V]", .hint = NULL, .func = cmd_vad, .argtable = NULL, .func_w_context = NULL, .context = NULL},
+        {.command = "diag", .help = "captura 2 s e mostra rms + distancias", .hint = NULL, .func = cmd_diag, .argtable = NULL, .func_w_context = NULL, .context = NULL},
     };
-    for (int i = 0; i < 5; i++) ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[i]));
+    for (int i = 0; i < 6; i++) ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[i]));
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
 }
 

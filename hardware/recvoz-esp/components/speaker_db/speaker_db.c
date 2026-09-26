@@ -25,6 +25,7 @@ typedef struct {
 
 static extra_t s_extra[SPK_EXTRA_MAX];
 static float s_tau = SPK_TAU_DEFAULT;
+static uint8_t s_ovr; // bit s = fábrica s sobrescrita por enroll ao vivo
 static int s_ok;
 
 static float cos_dist(const float *a, const float *b)
@@ -75,6 +76,10 @@ static esp_err_t load_all(void)
         if (isfinite(t) && t > 0 && t < 1) s_tau = t;
     }
     memset(s_extra, 0, sizeof(s_extra));
+    s_ovr = 0;
+    uint8_t ovr = 0;
+    if (nvs_get_u8(h, "ovr", &ovr) == ESP_OK)
+        s_ovr = ovr & ((1u << ENROLL_DEFAULT_NSPK) - 1);
     for (int i = 0; i < SPK_EXTRA_MAX; i++) {
         char kname[8], kvec[8];
         snprintf(kname, sizeof kname, "x%dn", i);
@@ -115,18 +120,55 @@ esp_err_t speaker_db_init(void)
 
 int speaker_db_count(void)
 {
-    int n = ENROLL_DEFAULT_NSPK;
+    int n = 0;
+    for (int s = 0; s < ENROLL_DEFAULT_NSPK; s++)
+        if (!(s_ovr & (1u << s))) n++;
     for (int i = 0; i < SPK_EXTRA_MAX; i++)
         if (s_extra[i].used) n++;
     return n;
 }
 
+// Ordem mesclada: fábrica ativa + extras. Resolve pos -> fábrica s ou extra e.
+static int merged_resolve(int pos, int *out_factory, int *out_extra)
+{
+    for (int s = 0; s < ENROLL_DEFAULT_NSPK; s++) {
+        if (s_ovr & (1u << s)) continue;
+        if (pos-- == 0) { *out_factory = s; *out_extra = -1; return 0; }
+    }
+    for (int e = 0; e < SPK_EXTRA_MAX; e++) {
+        if (!s_extra[e].used) continue;
+        if (pos-- == 0) { *out_factory = -1; *out_extra = e; return 0; }
+    }
+    return -1;
+}
+
 const char *speaker_db_name(int idx)
 {
-    if (idx < ENROLL_DEFAULT_NSPK) return ENROLL_DEFAULT_NAMES[idx];
-    int e = idx - ENROLL_DEFAULT_NSPK;
-    if (e < SPK_EXTRA_MAX && s_extra[e].used) return s_extra[e].name;
-    return "?";
+    int fs, fe;
+    if (merged_resolve(idx, &fs, &fe) != 0) return "?";
+    return fs >= 0 ? ENROLL_DEFAULT_NAMES[fs] : s_extra[fe].name;
+}
+
+// Menor distância do vetor aos vetores do locutor idx (p/ diag/calibração).
+float speaker_db_dist_to(int idx, const float *mean39)
+{
+    if (!s_ok || !mean39) return 1.0f;
+    int fs, fe;
+    if (merged_resolve(idx, &fs, &fe) != 0) return 1.0f;
+    float best = 1.0f;
+    if (fs >= 0) {
+        int n = factory_nvec(fs);
+        for (int j = 0; j < n; j++) {
+            float d = cos_dist(mean39, factory_vec(fs, j));
+            if (d < best) best = d;
+        }
+    } else {
+        for (int j = 0; j < s_extra[fe].nvec; j++) {
+            float d = cos_dist(mean39, s_extra[fe].vecs[j]);
+            if (d < best) best = d;
+        }
+    }
+    return best;
 }
 
 esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec)
@@ -152,6 +194,14 @@ esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec)
     memcpy(s_extra[slot].vecs, vecs, nvec * SPK_DIM * sizeof(float));
     s_extra[slot].used = 1;
 
+    // Nome de fábrica? Os vetores ao vivo (mesmo mic/sala) passam a valer;
+    // os de fábrica desse locutor saem da votação (bit ovr persistido).
+    for (int s = 0; s < ENROLL_DEFAULT_NSPK; s++)
+        if (strcmp(clean, ENROLL_DEFAULT_NAMES[s]) == 0) {
+            s_ovr |= (1u << s);
+            ESP_LOGI(TAG, "%s: fábrica sobrescrita por enroll ao vivo", clean);
+        }
+
     nvs_handle_t h;
     ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READWRITE, &h), TAG, "nvs open");
     char kname[8], kvec[8];
@@ -162,6 +212,7 @@ esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec)
     memcpy(blob + 1, vecs, nvec * SPK_DIM * sizeof(float));
     esp_err_t r = nvs_set_str(h, kname, clean);
     if (r == ESP_OK) r = nvs_set_blob(h, kvec, blob, 1 + nvec * SPK_DIM * sizeof(float));
+    if (r == ESP_OK) r = nvs_set_u8(h, "ovr", s_ovr);
     if (r == ESP_OK) r = nvs_commit(h);
     nvs_close(h);
     ESP_RETURN_ON_ERROR(r, TAG, "nvs write");
@@ -181,9 +232,11 @@ esp_err_t speaker_db_reset(void)
         nvs_erase_key(h, kname);
         nvs_erase_key(h, kvec);
     }
+    nvs_erase_key(h, "ovr");
     esp_err_t r = nvs_commit(h);
     nvs_close(h);
     memset(s_extra, 0, sizeof(s_extra));
+    s_ovr = 0;
     ESP_RETURN_ON_ERROR(r, TAG, "nvs commit");
     return ESP_OK;
 }
@@ -208,19 +261,21 @@ esp_err_t speaker_db_set_tau(float tau)
 int speaker_db_classify(const float *mean39, float *out_dist)
 {
     if (!s_ok || !mean39) return -1;
-    // Junta fábrica + extras numa lista plana (máx 60 vetores).
+    // Junta fábrica ativa + extras numa lista plana (máx 60 vetores).
+    // spk = posição mesclada (mesma de speaker_db_name/count).
     static struct { float d; int spk; } cand[ENROLL_DEFAULT_NVEC + SPK_EXTRA_MAX * SPK_EXTRA_VECS];
-    int nc = 0;
-    for (int s = 0; s < ENROLL_DEFAULT_NSPK; s++) {
-        int n = factory_nvec(s);
-        for (int j = 0; j < n; j++)
-            cand[nc++] = (typeof(cand[0])){cos_dist(mean39, factory_vec(s, j)), s};
-    }
-    for (int e = 0; e < SPK_EXTRA_MAX; e++) {
-        if (!s_extra[e].used) continue;
-        for (int j = 0; j < s_extra[e].nvec; j++)
-            cand[nc++] = (typeof(cand[0])){cos_dist(mean39, s_extra[e].vecs[j]),
-                                           ENROLL_DEFAULT_NSPK + e};
+    int nc = 0, pos = 0, fs, fe;
+    for (int p = 0; ; p++) {
+        if (merged_resolve(p, &fs, &fe) != 0) break;
+        if (fs >= 0) {
+            int n = factory_nvec(fs);
+            for (int j = 0; j < n; j++)
+                cand[nc++] = (typeof(cand[0])){cos_dist(mean39, factory_vec(fs, j)), pos};
+        } else {
+            for (int j = 0; j < s_extra[fe].nvec; j++)
+                cand[nc++] = (typeof(cand[0])){cos_dist(mean39, s_extra[fe].vecs[j]), pos};
+        }
+        pos++;
     }
     if (nc == 0) return -1;
     // 3 menores (k=3 do notebook).

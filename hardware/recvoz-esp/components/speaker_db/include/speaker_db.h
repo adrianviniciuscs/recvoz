@@ -17,7 +17,7 @@ extern "C" {
 /** @brief nvs_flash_init + carrega extras + tau da NVS. Idempotente. */
 esp_err_t speaker_db_init(void);
 
-/** @brief Nº total de locutores (fábrica + extras). */
+/** @brief Nº total de locutores (fábrica ativa + extras). */
 int speaker_db_count(void);
 
 /** @brief Nome do locutor idx (0..count-1). Ponteiro interno, não liberar. */
@@ -26,6 +26,9 @@ const char *speaker_db_name(int idx);
 /**
  * @brief Cadastra/atualiza locutor extra (ex "VISITANTE").
  * @param nvec 1..SPK_EXTRA_VECS vetores médios 39-dim.
+ *
+ * Se o nome é de fábrica (ex "ADRIAN"), os vetores ao vivo passam a
+ * valer e os de fábrica saem da votação (bit persistido; `reset` reverte).
  */
 esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec);
 
@@ -41,6 +44,9 @@ esp_err_t speaker_db_set_tau(float tau);
  * @param out_dist recebe a menor distância (p/ log/calibração, pode ser NULL).
  */
 int speaker_db_classify(const float *mean39, float *out_dist);
+
+/** @brief Menor distância ao locutor idx (p/ diag/calibração). */
+float speaker_db_dist_to(int idx, const float *mean39);
 
 #ifdef __cplusplus
 }
