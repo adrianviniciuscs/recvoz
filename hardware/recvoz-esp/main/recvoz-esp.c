@@ -15,6 +15,7 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_console.h"
+#include "esp_timer.h"
 #include "driver/gpio.h"
 #include "audio_in.h"
 #include "mfcc.h"
@@ -49,7 +50,8 @@ static int rms16(const int16_t *p, int n)
 }
 
 // Junta 2 s SÓ de blocos acima do VAD (protótipo; definição abaixo).
-static int capture_voiced(int16_t *out, int trace);
+// prog(got, need) é chamado a cada ~0.4 s p/ barra de progresso (pode ser NULL).
+static int capture_voiced(int16_t *out, int trace, void (*prog)(int, int));
 
 // Aguarda voz (VAD, buffer local — seguro sem trava). 1 = voz, 0 = enroll.
 static int listen_trigger(void)
@@ -69,10 +71,10 @@ static int listen_trigger(void)
 
 // Junta 2 s SÓ de blocos acima do VAD (pula silêncio/reação), p/ a janela
 // não diluir a média com quietude. 1 = ok, 0 = timeout, -1 = botão.
-static int capture_voiced(int16_t *out, int trace)
+static int capture_voiced(int16_t *out, int trace, void (*prog)(int, int))
 {
     static int16_t chunk[VAD_CHUNK];
-    int got = 0;
+    int got = 0, reported = -1;
     for (int it = 0; it < CAP_ITERS && got < AUDIO_IN_WINDOW_SAMPLES; it++) {
         if (gpio_get_level(BTN_GPIO) == 0) return -1;
         ESP_ERROR_CHECK(audio_in_read(chunk, VAD_CHUNK));
@@ -81,10 +83,24 @@ static int capture_voiced(int16_t *out, int trace)
         if (r > s_vad_thr) {
             memcpy(out + got, chunk, sizeof(chunk));
             got += VAD_CHUNK;
+            if (prog && got - reported >= 6400) { reported = got; prog(got, AUDIO_IN_WINDOW_SAMPLES); }
         }
     }
     if (trace) printf("\n  voz: %d/%d blocos\n", got / VAD_CHUNK, AUDIO_IN_WINDOW_SAMPLES / VAD_CHUNK);
+    if (prog) prog(got, AUDIO_IN_WINDOW_SAMPLES);
     return got >= AUDIO_IN_WINDOW_SAMPLES ? 1 : 0;
+}
+
+// Contagem regressiva ao vivo do enroll (segundos de VOZ restantes).
+static int s_enroll_banked;
+static void enroll_prog(int got, int need)
+{
+    (void)need;
+    int rem = (ENROLL_WINS * 2) - (s_enroll_banked + got) / 16000;
+    if (rem < 1) rem = 1;
+    char lbl[16];
+    snprintf(lbl, sizeof lbl, "FALE %dS", rem);
+    recvoz_display_show(RECVOZ_FACE_LISTENING, lbl);
 }
 
 static void do_classify(void) // s_dsp travado pelo chamador
@@ -114,18 +130,19 @@ static void do_enroll(const char *name)
     static float evecs[ENROLL_WINS][MFCC_DIM];
     xSemaphoreTake(s_dsp, portMAX_DELAY);
     for (int w = 0; w < ENROLL_WINS; w++) {
-        char lbl[16];
-        snprintf(lbl, sizeof lbl, "FALE %dS", (ENROLL_WINS - w) * 2);
-        ESP_ERROR_CHECK(recvoz_display_show(RECVOZ_FACE_LISTENING, lbl));
+        s_enroll_banked = w * AUDIO_IN_WINDOW_SAMPLES;
+        enroll_prog(0, AUDIO_IN_WINDOW_SAMPLES);
         int tries = 0, r = 0;
-        while ((r = capture_voiced(s_win, 0)) == 0 && tries < 2) {
+        while ((r = capture_voiced(s_win, 0, enroll_prog)) == 0 && tries < 2) {
             tries++;
             ESP_LOGI(TAG, "janela %d fraca, repetindo (%d/2)...", w + 1, tries);
             ESP_ERROR_CHECK(recvoz_display_show(RECVOZ_FACE_LISTENING, "FALE ALTO"));
         }
         if (r < 0) { ESP_LOGI(TAG, "enroll cancelado"); xSemaphoreGive(s_dsp); return; }
         if (r == 0) { ESP_LOGI(TAG, "enroll abortado: pouca voz"); xSemaphoreGive(s_dsp); return; }
+        int64_t t0 = esp_timer_get_time();
         int nf = mfcc_process_window(s_win, s_m); // s_m: sob trava, seguro
+        ESP_LOGI(TAG, "mfcc %d frames em %lld ms", nf, (esp_timer_get_time() - t0) / 1000);
         if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou no enroll"); xSemaphoreGive(s_dsp); return; }
         mfcc_mean_vector(s_m, nf, evecs[w]);
         ESP_LOGI(TAG, "enroll %d/%d", w + 1, ENROLL_WINS);
@@ -176,7 +193,7 @@ static int cmd_diag(int argc, char **argv)
     (void)argc; (void)argv;
     printf("juntando 2 s de voz... FALE agora (contínuo)\n");
     xSemaphoreTake(s_dsp, portMAX_DELAY);
-    int r = capture_voiced(s_win, 1);
+    int r = capture_voiced(s_win, 1, NULL);
     if (r <= 0) { printf(r < 0 ? "cancelado\n" : "pouca voz\n"); xSemaphoreGive(s_dsp); return 1; }
     int nf = mfcc_process_window(s_win, s_m);
     if (nf <= 0) { printf("mfcc falhou\n"); xSemaphoreGive(s_dsp); return 1; }
@@ -255,7 +272,7 @@ void app_main(void)
             xSemaphoreGive(s_dsp);
             continue; // volta ao topo, que desvia p/ enroll
         }
-        int r = capture_voiced(s_win, 0);
+        int r = capture_voiced(s_win, 0, NULL);
         if (r < 0) { // botão no meio: enroll
             xSemaphoreGive(s_dsp);
             do_enroll("VISITANTE");
