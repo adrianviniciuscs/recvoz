@@ -74,13 +74,13 @@ static esp_err_t load_all(void)
     size_t len = sizeof(bits);
     uint8_t tauv = 0;
     nvs_get_u8(h, "tauver", &tauv);
-    if (tauv != 1) {
-        // TAU_DEFAULT mudou (0.003 c/ c0 -> 0.022 s/ c0): ignora valor
+    if (tauv != 2) {
+        // TAU_DEFAULT mudou (-> 0.017, base só-com-voz): ignora valor
         // antigo, grava o novo + carimba versão.
         s_tau = SPK_TAU_DEFAULT;
         memcpy(&bits, &s_tau, 4);
         nvs_set_u32(h, "tau", bits);
-        nvs_set_u8(h, "tauver", 1);
+        nvs_set_u8(h, "tauver", 2);
         nvs_commit(h);
     } else if (nvs_get_u32(h, "tau", &bits) == ESP_OK) {
         float t;
@@ -263,7 +263,7 @@ esp_err_t speaker_db_set_tau(float tau)
     uint32_t bits;
     memcpy(&bits, &tau, 4);
     esp_err_t r = nvs_set_u32(h, "tau", bits);
-    if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 1);
+    if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 2);
     if (r == ESP_OK) r = nvs_commit(h);
     nvs_close(h);
     ESP_RETURN_ON_ERROR(r, TAG, "nvs write");

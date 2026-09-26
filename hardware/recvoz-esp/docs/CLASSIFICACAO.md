@@ -65,12 +65,13 @@ Idêntico ao sklearn do notebook (`k=3`, cosseno, peso por distância):
    (idêntico), voto direto nele.
 3. **Voto ponderado** `peso = 1/d` somado por locutor; vence o maior peso.
 4. **Limiar de desconhecido:** se `dmin > τ` → `-1` = DESCONHECIDO,
-   mesmo que o k-NN apontasse alguém. Default **τ = 0.022**
-   (meio do gap; leave-one-out 36/36).
+   mesmo que o k-NN apontasse alguém. Default **τ = 0.017**
+   (meio do gap 0.0119–0.0219; leave-one-out 24/24).
 
-Números offline (leave-one-out nos 36 vetores, sem c0): τ=0.022 →
-**36/36**, 0 rejeições; mesma-voz até 0.0185, outra-voz desde 0.0264
-(**gap limpo**, sem overlap). Mesmo assim o τ se valida em sala
+Números offline (leave-one-out nos 24 vetores com-voz, sem c0): τ=0.017 →
+**24/24**, 0 rejeições; mesma-voz até 0.0119, outra-voz desde 0.0219
+(**gap limpo**). A base de fábrica usa só blocos acima do VAD
+(igual às janelas ao vivo — ver export_mfcc.py). Mesmo assim o τ se valida em sala
 (`tau` persiste em NVS; ver `docs/CALIBRACAO.md`), porque sala real tem
 ruído e vetores ao vivo.
 

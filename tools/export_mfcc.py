@@ -156,7 +156,15 @@ def main():
         raw, srr = sf.read(str(wav), dtype="float32")
         if srr != TARGET_SR:
             raw = librosa.resample(raw, orig_sr=srr, target_sr=TARGET_SR)
-        by_sp.setdefault(mt.group("nome"), []).append(raw.astype(np.float64))
+        # Só blocos de 100 ms acima do VAD (== capture_voiced do firmware):
+        # a base precisa da mesma distribuição das janelas ao vivo.
+        blk = len(raw) // 1600 * 1600
+        fr = raw[:blk].reshape(-1, 1600)
+        hot = fr[np.sqrt((fr ** 2).mean(axis=1)) * 32768 > 300]
+        kept = hot.reshape(-1) if len(hot) else np.array([], dtype=np.float32)
+        print(f"{wav.name}: {len(raw)/TARGET_SR:.1f}s -> {len(kept)/TARGET_SR:.1f}s com voz")
+        if len(kept) >= 32000:
+            by_sp.setdefault(mt.group("nome"), []).append(kept.astype(np.float64))
     for sp in sorted(by_sp):
         mm, _ = pipeline(np.concatenate(by_sp[sp]))  # concatena por locutor, igual ao notebook
         fseg = int(round(2.0 * TARGET_SR / HOP_LENGTH))  # 125, igual ao notebook
