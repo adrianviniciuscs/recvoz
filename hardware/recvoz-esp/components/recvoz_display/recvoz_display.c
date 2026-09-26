@@ -5,6 +5,7 @@
 // Sad 40x15 com slope. Fonte 5x7 clássica Adafruit (vide font5x7.h).
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -32,6 +33,9 @@ static uint8_t s_fb[LCD_H_RES * LCD_V_RES / 8];
 static SemaphoreHandle_t s_lock;
 static recvoz_face_t s_face = RECVOZ_FACE_LISTENING;
 static char s_label[32] = "OUVINDO";
+static int s_mode; // 0 = carinha, 1 = placar top-2
+static char s_w[13], s_r[13];
+static float s_dmin, s_drunner, s_tau;
 
 typedef struct { float w, h, r_top, r_bot; } eye_t;
 static const eye_t EYE_NORMAL = {34, 30, 8, 8};
@@ -135,6 +139,63 @@ static void draw_status(const char *s)
     }
 }
 
+// Texto genérico alinhado (placar usa este; status usa o centralizado acima).
+static void draw_text(int x, int y, const char *s, int scale)
+{
+    while (*s) {
+        uint8_t b = (uint8_t)*s;
+        if (b < 0x80) {
+            char c = b;
+            if (c >= 'a' && c <= 'z') c -= 32;
+            draw_char(x, y, c, scale); x += 6 * scale; s++;
+        } else if (b == 0xC3 && s[1]) {
+            draw_char(x, y, fold_accent(s[1]), scale); x += 6 * scale; s += 2;
+        } else s++;
+    }
+}
+static void draw_text_right(int y, const char *s, int scale)
+{
+    draw_text(LCD_H_RES - (int)strlen(s) * 6 * scale + scale, y, s, scale);
+}
+static void draw_text_centered(int y, const char *s, int scale)
+{
+    int w = (int)strlen(s) * 6 * scale - scale;
+    int x = (LCD_H_RES - w) / 2;
+    draw_text(x < 0 ? 0 : x, y, s, scale);
+}
+
+// Placar didático: top-1/top-2 + barra dmin vs TAU.
+static void render_score(const char *w, float dmin, const char *r, float drunner, float tau)
+{
+    char b[8];
+    memset(s_fb, 0, sizeof(s_fb));
+    draw_text(2, 2, "1", 1);
+    draw_text(12, 2, w, 1);
+    snprintf(b, sizeof b, "%.3f", dmin);
+    draw_text_right(2, b, 1);
+    draw_text(2, 12, "2", 1);
+    draw_text(12, 12, r, 1);
+    if (drunner < 0) draw_text_right(12, "---", 1);
+    else { snprintf(b, sizeof b, "%.3f", drunner); draw_text_right(12, b, 1); }
+    draw_text_centered(24, dmin > tau ? "DESCONHECIDO" : "CONHECIDO", 1);
+    // barra: eixo x4..123, preenchido até dmin, traço no TAU
+    float maxv = drunner > tau ? drunner : tau;
+    maxv *= 1.15f;
+    if (maxv < 0.05f) maxv = 0.05f;
+    for (int x = 4; x <= 123; x++) px(x, 42, 1);
+    int fill = 4 + (int)(119 * dmin / maxv);
+    if (fill > 123) fill = 123;
+    for (int x = 4; x <= fill; x++)
+        for (int y = 38; y <= 41; y++) px(x, y, 1);
+    int tick = 4 + (int)(119 * tau / maxv);
+    if (tick > 123) tick = 123;
+    for (int y = 36; y <= 45; y++) px(tick, y, 1);
+    snprintf(b, sizeof b, "%.3f", tau);
+    char tl[16];
+    snprintf(tl, sizeof tl, "TAU %s", b);
+    draw_text(4, 50, tl, 1);
+}
+
 // ---------------- olhos estilo Cozmo ----------------
 static int eye_hit(float dx, float dy, const eye_t *e, float slope)
 {
@@ -214,10 +275,21 @@ static void anim_task(void *arg)
     while (1) {
         int64_t now = esp_timer_get_time() / 1000;
         recvoz_face_t f; char label[32];
+        int mode; char nm_w[13], nm_r[13]; float dmin, drunner, tau;
         xSemaphoreTake(s_lock, portMAX_DELAY);
         f = s_face; strncpy(label, s_label, sizeof(label));
         label[sizeof(label) - 1] = 0;
+        mode = s_mode;
+        strncpy(nm_w, s_w, sizeof(nm_w)); strncpy(nm_r, s_r, sizeof(nm_r));
+        dmin = s_dmin; drunner = s_drunner; tau = s_tau;
         xSemaphoreGive(s_lock);
+
+        if (mode == 1) {
+            render_score(nm_w, dmin, nm_r, drunner, tau);
+            esp_lcd_panel_draw_bitmap(s_panel, 0, 0, LCD_H_RES, LCD_V_RES, s_fb);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
 
         eye_t tl, tr; float sl, sr;
         target_for(f, &tl, &tr, &sl, &sr);
@@ -303,8 +375,22 @@ esp_err_t recvoz_display_show(recvoz_face_t face, const char *label)
     const char *def = face == RECVOZ_FACE_HAPPY ? "OLA"
                     : face == RECVOZ_FACE_SAD ? "DESCONHECIDO" : "OUVINDO";
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_mode = 0;
     s_face = face;
     strncpy(s_label, label && *label ? label : def, sizeof(s_label) - 1);
+    xSemaphoreGive(s_lock);
+    return ESP_OK;
+}
+
+/** Placar top-2 (didático). Volta p/ carinha no próximo show(). */
+esp_err_t recvoz_display_score(const char *wname, float dmin, const char *rname, float drunner, float tau)
+{
+    if (!s_panel || !s_lock) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_mode = 1;
+    snprintf(s_w, sizeof s_w, "%s", (wname && wname[0]) ? wname : "?");
+    snprintf(s_r, sizeof s_r, "%s", (rname && rname[0]) ? rname : "?");
+    s_dmin = dmin; s_drunner = drunner; s_tau = tau;
     xSemaphoreGive(s_lock);
     return ESP_OK;
 }

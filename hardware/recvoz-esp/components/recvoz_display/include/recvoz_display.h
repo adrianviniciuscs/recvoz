@@ -47,6 +47,13 @@ esp_err_t recvoz_display_listening(void);
 esp_err_t recvoz_display_happy(const char *name);
 esp_err_t recvoz_display_unknown(void);
 
+/**
+ * @brief Placar top-2 (didático): vencedor + vice + barra dmin vs TAU.
+ * @param drunner use valor < 0 se só há 1 locutor (mostra "---").
+ * Volta p/ carinha no próximo show().
+ */
+esp_err_t recvoz_display_score(const char *wname, float dmin, const char *rname, float drunner, float tau);
+
 #ifdef __cplusplus
 }
 #endif

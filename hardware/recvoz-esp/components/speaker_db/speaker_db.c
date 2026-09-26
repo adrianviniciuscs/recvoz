@@ -271,6 +271,33 @@ esp_err_t speaker_db_set_tau(float tau)
     return ESP_OK;
 }
 
+int speaker_db_classify_full(const float *mean39, spk_result_t *out)
+{
+    spk_result_t r = {-1, 1.0f, -1, 1.0f};
+    if (out) *out = r;
+    if (!s_ok || !mean39) return -1;
+    // Menor distância por locutor (ordem mesclada).
+    int nspk = speaker_db_count();
+    float best1 = 1.0f, best2 = 1.0f;
+    int i1 = -1, i2 = -1;
+    for (int i = 0; i < nspk; i++) {
+        float d = speaker_db_dist_to(i, mean39);
+        if (d < best1) { best2 = best1; i2 = i1; best1 = d; i1 = i; }
+        else if (d < best2) { best2 = d; i2 = i; }
+    }
+    if (i1 < 0) return -1;
+    // Voto k-NN k=3 p/ o vencedor (idêntico ao classify clássico).
+    int w = speaker_db_classify(mean39, NULL);
+    // Se o k-NN discordar do vizinho mais próximo, vale o k-NN;
+    // o vice continua sendo o 2º por distância (didática honesta).
+    r.dmin = (w >= 0) ? speaker_db_dist_to(w, mean39) : best1;
+    r.winner = (best1 > s_tau) ? -1 : w;
+    r.runner = (i1 == w || w < 0) ? i2 : i1;
+    r.drunner = (r.runner >= 0) ? speaker_db_dist_to(r.runner, mean39) : 1.0f;
+    if (out) *out = r;
+    return r.winner;
+}
+
 int speaker_db_classify(const float *mean39, float *out_dist)
 {
     if (!s_ok || !mean39) return -1;

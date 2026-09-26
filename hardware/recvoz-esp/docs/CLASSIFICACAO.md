@@ -75,6 +75,15 @@ Números offline (leave-one-out nos 24 vetores com-voz, sem c0): τ=0.017 →
 (`tau` persiste em NVS; ver `docs/CALIBRACAO.md`), porque sala real tem
 ruído e vetores ao vivo.
 
+## 3b. Didática: top-2 + margem (placar no display)
+
+Cada decisão expõe `spk_result_t`: vencedor + `dmin`, **vice + `drunner`**,
+`margem = drunner − dmin`. O display alterna carinha (3/5 do `hold`) com
+o **placar**: `1 NOME d` / `2 NOME d` + veredito + **barra da distância
+com o traço do τ**. Na banca: margem grande = decisão folgada; margem
+apertada ou barra encostando no traço = caso duvidoso (bom gancho p/
+falar de limiar open-set). Log serial mostra o mesmo em 1 linha.
+
 ## 4. Enroll — cadastrando gente nova
 
 ```

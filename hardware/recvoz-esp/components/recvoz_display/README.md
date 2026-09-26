@@ -36,6 +36,8 @@ recvoz_display_listening();     // OUVINDO
 recvoz_display_happy("MARIA");  // reconheceu (aceita minúsculas e acentos: "João" -> "JOAO")
 recvoz_display_unknown();       // DESCONHECIDO
 // ou genérico: recvoz_display_show(RECVOZ_FACE_HAPPY, "PEDRO");
+// placar didático (top-2 + barra dmin vs TAU; volta p/ carinha no próximo show):
+recvoz_display_score("ADRIAN", 0.018f, "PEDRO", 0.052f, 0.017f);
 ```
 
 - `show()` é **não-bloqueante**: uma task interna anima (morph ~300 ms,

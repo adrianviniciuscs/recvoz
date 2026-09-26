@@ -110,17 +110,21 @@ static void do_classify(void) // s_dsp travado pelo chamador
 {
     int nf = mfcc_process_window(s_win, s_m);
     if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou"); return; }
-    float mean[MFCC_DIM], dist = 0;
+    float mean[MFCC_DIM];
     mfcc_mean_vector(s_m, nf, mean);
-    int idx = speaker_db_classify(mean, &dist);
-    if (idx < 0) {
-        ESP_LOGI(TAG, "DESCONHECIDO (d=%.4f)", dist);
-        ESP_ERROR_CHECK(recvoz_display_unknown());
-    } else {
-        ESP_LOGI(TAG, "reconhecido: %s (d=%.4f)", speaker_db_name(idx), dist);
-        ESP_ERROR_CHECK(recvoz_display_happy(speaker_db_name(idx)));
-    }
-    vTaskDelay(pdMS_TO_TICKS(s_hold_ms)); // segura o resultado no display
+    spk_result_t r;
+    int idx = speaker_db_classify_full(mean, &r);
+    const char *wn = idx >= 0 ? speaker_db_name(idx) : "?";
+    const char *rn = r.runner >= 0 ? speaker_db_name(r.runner) : "?";
+    float tau = speaker_db_get_tau();
+    ESP_LOGI(TAG, "%s d=%.4f (2o %s %.4f, tau=%.4f, margem=%.4f)",
+             idx >= 0 ? wn : "DESCONHECIDO", r.dmin, rn, r.drunner, tau, r.drunner - r.dmin);
+    // Carinha 3/5 do tempo + placar top-2 no resto (didático).
+    if (idx < 0) ESP_ERROR_CHECK(recvoz_display_unknown());
+    else ESP_ERROR_CHECK(recvoz_display_happy(wn));
+    vTaskDelay(pdMS_TO_TICKS(s_hold_ms * 3 / 5));
+    ESP_ERROR_CHECK(recvoz_display_score(wn, r.dmin, rn, r.runner >= 0 ? r.drunner : -1, tau));
+    vTaskDelay(pdMS_TO_TICKS(s_hold_ms - s_hold_ms * 3 / 5));
 }
 
 static void do_enroll(const char *name)

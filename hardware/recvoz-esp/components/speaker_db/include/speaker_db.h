@@ -45,6 +45,17 @@ esp_err_t speaker_db_set_tau(float tau);
  */
 int speaker_db_classify(const float *mean39, float *out_dist);
 
+/** Resultado completo p/ didática (top-2 + margem no display). */
+typedef struct {
+    int winner;      ///< índice (ou -1 = desconhecido)
+    float dmin;      ///< distância ao vencedor
+    int runner;      ///< vice (índice, -1 se só há 1 locutor)
+    float drunner;   ///< distância ao vice
+} spk_result_t;
+
+/** @brief Classifica e preenche top-1/top-2 (margem = drunner - dmin). */
+int speaker_db_classify_full(const float *mean39, spk_result_t *out);
+
 /** @brief Menor distância ao locutor idx (p/ diag/calibração). */
 float speaker_db_dist_to(int idx, const float *mean39);
 
