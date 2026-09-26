@@ -8,7 +8,7 @@
 
 ```
 gravação (INMP441, 16 kHz) ──► audio_exemplo/locutor_<nome>_s<N>.wav
-  ──► notebook: EDA + comparou 5 métodos ──► k-NN venceu (99.4%)
+  ──► notebook: EDA + comparou 5 métodos ──► k-NN venceu (93.3%)
   ──► tools/export_mfcc.py ──► enroll_default.h (flash) + fixtures de teste
   ──► validação leave-one-out + escolha do τ ──► firmware classifica
 ```
@@ -31,14 +31,16 @@ gravação (INMP441, 16 kHz) ──► audio_exemplo/locutor_<nome>_s<N>.wav
 
 | Método | Acurácia |
 |---|---|
-| k-NN (k=3, cosseno, peso 1/d) | **99.4% ± 2.3%** ← escolhido |
-| Centroide + cosseno | 97.6% ± 5.2% |
-| MLP (64) | 97.6% ± 5.2% |
-| GMM por locutor | 84.8% ± 11.8% |
-| SVM (RBF) | 63.6% |
+| k-NN (k=3, cosseno, peso 1/d) | **93.3% ± 4.8%** ← escolhido |
+| Centroide + cosseno | 86.7% ± 7.1% |
+| MLP (64) | 90.8% ± 8.0% |
+| GMM por locutor | 93.3% ± 6.8% |
+| SVM (RBF) | 53.8% |
 
-k-NN venceu **e** é *lazy* (cadastrar = armazenar vetores, sem treino) —
-perfeito pro enroll embarcado. Equações da decisão em `CLASSIFICACAO.md` §3.
+k-NN empata com o GMM na média (93.3%) com **menos desvio** — e é *lazy*
+(cadastrar = armazenar vetores, sem treino) — perfeito pro enroll
+embarcado. A queda vs a base antiga (99.4%) é esperada: tudo gravado no
+mesmo mic, com variabilidade real de sessão. Equações em `CLASSIFICACAO.md` §3.
 
 ## 3. Export: do wav à flash (`tools/export_mfcc.py`)
 
