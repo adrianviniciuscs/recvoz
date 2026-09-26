@@ -115,15 +115,21 @@ static void do_classify(void) // s_dsp travado pelo chamador
     spk_result_t r;
     int idx = speaker_db_classify_full(mean, &r);
     const char *wn = idx >= 0 ? speaker_db_name(idx) : "?";
+    const char *near = r.nearest >= 0 ? speaker_db_name(r.nearest) : "?";
     const char *rn = r.runner >= 0 ? speaker_db_name(r.runner) : "?";
     float tau = speaker_db_get_tau();
-    ESP_LOGI(TAG, "%s d=%.4f (2o %s %.4f, tau=%.4f, margem=%.4f)",
-             idx >= 0 ? wn : "DESCONHECIDO", r.dmin, rn, r.drunner, tau, r.drunner - r.dmin);
+    if (idx < 0)
+        ESP_LOGI(TAG, "DESCONHECIDO (quase %s) d=%.4f (2o %s %.4f, tau=%.4f)",
+                 near, r.dmin, rn, r.drunner, tau);
+    else
+        ESP_LOGI(TAG, "%s d=%.4f (2o %s %.4f, tau=%.4f, margem=%.4f)",
+                 wn, r.dmin, rn, r.drunner, tau, r.drunner - r.dmin);
     // Carinha 3/5 do tempo + placar top-2 no resto (didático).
+    // No DESCONHECIDO o placar mostra quem ele QUASE foi (nearest).
     if (idx < 0) ESP_ERROR_CHECK(recvoz_display_unknown());
     else ESP_ERROR_CHECK(recvoz_display_happy(wn));
     vTaskDelay(pdMS_TO_TICKS(s_hold_ms * 3 / 5));
-    ESP_ERROR_CHECK(recvoz_display_score(wn, r.dmin, rn, r.runner >= 0 ? r.drunner : -1, tau));
+    ESP_ERROR_CHECK(recvoz_display_score(idx >= 0 ? wn : near, r.dmin, rn, r.runner >= 0 ? r.drunner : -1, tau));
     vTaskDelay(pdMS_TO_TICKS(s_hold_ms - s_hold_ms * 3 / 5));
 }
 

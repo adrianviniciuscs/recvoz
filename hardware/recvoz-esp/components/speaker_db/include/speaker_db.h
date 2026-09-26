@@ -48,9 +48,10 @@ int speaker_db_classify(const float *mean39, float *out_dist);
 /** Resultado completo p/ didática (top-2 + margem no display). */
 typedef struct {
     int winner;      ///< índice (ou -1 = desconhecido)
-    float dmin;      ///< distância ao vencedor
+    float dmin;      ///< distância ao vencedor (ou ao mais próximo, se -1)
     int runner;      ///< vice (índice, -1 se só há 1 locutor)
     float drunner;   ///< distância ao vice
+    int nearest;     ///< mais próximo por distância (mesmo se desconhecido)
 } spk_result_t;
 
 /** @brief Classifica e preenche top-1/top-2 (margem = drunner - dmin). */

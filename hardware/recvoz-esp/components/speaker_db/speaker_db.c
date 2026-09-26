@@ -273,7 +273,7 @@ esp_err_t speaker_db_set_tau(float tau)
 
 int speaker_db_classify_full(const float *mean39, spk_result_t *out)
 {
-    spk_result_t r = {-1, 1.0f, -1, 1.0f};
+    spk_result_t r = {-1, 1.0f, -1, 1.0f, -1};
     if (out) *out = r;
     if (!s_ok || !mean39) return -1;
     // Menor distância por locutor (ordem mesclada).
@@ -292,6 +292,7 @@ int speaker_db_classify_full(const float *mean39, spk_result_t *out)
     // o vice continua sendo o 2º por distância (didática honesta).
     r.dmin = (w >= 0) ? speaker_db_dist_to(w, mean39) : best1;
     r.winner = (best1 > s_tau) ? -1 : w;
+    r.nearest = i1;
     r.runner = (i1 == w || w < 0) ? i2 : i1;
     r.drunner = (r.runner >= 0) ? speaker_db_dist_to(r.runner, mean39) : 1.0f;
     if (out) *out = r;
