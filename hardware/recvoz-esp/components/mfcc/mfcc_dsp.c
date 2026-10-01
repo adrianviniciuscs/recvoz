@@ -159,12 +159,13 @@ static void frame_mfcc(const float *x, int n, int t, float *out13)
     mel_apply(power, mel);
     mel_to_db(mel);
 
-    // DCT-II ortho, 13 primeiros
+    // DCT-II ortho via tabela (dot float; o cos em double levava ~4 s no S3).
     for (int k = 0; k < MFCC_N_MFCC; k++) {
-        double s = 0.0;
+        const float *row = MFCC_DCT[k];
+        float s = 0.0f;
         for (int nn = 0; nn < MFCC_N_MELS; nn++)
-            s += mel[nn] * cos(M_PI * (2 * nn + 1) * k / (2.0 * MFCC_N_MELS));
-        out13[k] = (float)(s * (k ? sqrt(2.0 / MFCC_N_MELS) : sqrt(1.0 / MFCC_N_MELS)));
+            s += row[nn] * mel[nn];
+        out13[k] = s;
     }
 }
 

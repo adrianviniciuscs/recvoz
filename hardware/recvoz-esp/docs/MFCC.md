@@ -129,9 +129,11 @@ $$L[m] = 10\log_{10}(\max(E[m], 10^{-10})), \quad L[m] = \max(L[m], \max(L) - 80
 
 ## 6. DCT-II ortonormal → 13 MFCC
 
-$$s[k] = \sum_{n=0}^{127} L[n]\cos\left(\frac{\pi(2n+1)k}{256}\right), \quad \mathrm{MFCC}[k] = s[k]\cdot\begin{cases} \sqrt{1/128} & k = 0 \\ \sqrt{2/128} & k \geq 1 \end{cases}$$
+$$s[k] = \sum_{n=0}^{127} \mathrm{DCT}[k,n]\cdot L[n], \quad \mathrm{DCT} = \text{tabela 13×128 em } \texttt{mfcc\_tables.h}$$
 
-Equivale a `scipy.fft.dct(type=2, norm="ortho")`. Atenção ao c0:
+Tabela gerada = `scipy.fft.dct(type=2, norm="ortho")` (fator $\sqrt{1/128}$ no
+k=0, $\sqrt{2/128}$ nos demais). Dot em float na FPU em vez de 209k `cos()`
+em double emulado — isso cortava ~4 s por janela no S3. E atenção ao c0:
 como o log é absoluto, qualquer ganho global desloca **só o c0**
 ($\Delta c_0 = \Delta\mathrm{dB}\cdot\sqrt{128}$) — a FFT sem escala (§3.3) existe por causa dele.
 
@@ -192,3 +194,41 @@ Limiares do teste documentados em `tools/mfcc_hosttest/main.c`.
   contagem.
 - `mfcc_debug_frame()` existe p/ depurar um frame estágio a estágio
   (potência/mel/dB); uso só em teste.
+
+## 11. Diagrama
+
+[ÁUDIO BRUTO (PCM)]
+    │  (16.000 amostras por segundo)
+    ▼
+1. FILTRAGEM & JANELAMENTO
+    │  - Limpa ruídos extremos (Passa-banda ~80-7920 Hz)
+    │  - Corta o som em quadros de ~25 ms (ex: 512 amostras)
+    ▼
+2. FFT (Transformada Rápida de Fourier)
+    │  - Converte o tempo para frequência
+    │  - Obtém a Magnitude/Potência de 513 bins de frequência linear
+    ▼
+3. BANCO DE FILTROS MEL
+    │  - Multiplica os 513 bins pelo banco de triângulos
+    │  - Agrupa e reduz para 128 "Bandas Mel"
+    ▼
+4. LOGARITMO (Em escala dB)
+    │  - Aplica o Log na energia de cada banda
+    │  - Separa a convolução (voz = fonte * filtro) em SOMA (log(voz) = log(fonte) + log(filtro))
+    ▼
+5. DCT (Transformada Discreta de Cosseno)
+    │  - Descorrelaciona as bandas (como uma PCA "de graça")
+    │  - Concentra a forma da boca nos primeiros coeficientes
+    │  - Trunca: descarta o resto e GUARDA SÓ OS 13 PRIMEIRA COEFICIENTES (Estáticos)
+    ▼
+6. DELTAS E DELTA-DELTAS (Derivadas Temporais)
+    │  - Calcula a Velocidade (Δ): variação dos 13 números entre quadros
+    │  - Calcula a Aceleração (ΔΔ): variação da velocidade entre quadros
+    ▼
+[VETOR FINAL POR FRAME]
+    │  13 Estáticos + 13 Deltas + 13 Delta-Deltas = 39 DIMENSÕES
+    ▼
+7. MÉDIA TEMPORAL
+    │  - Tira a média dos 39 números ao longo dos 2 segundos de áudio
+    ▼
+[MÉDIA DE 39 NÚMEROS = VETOR FINAL PARA CLASSIFICAÇÃO]

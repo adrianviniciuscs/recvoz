@@ -90,6 +90,14 @@ def main():
     assert np.allclose(w2, w2[::-1]), "SG order2 deveria ser simetrico"
     print("SG order2 interior:", np.round(w2, 6))
 
+    # DCT-II ortonormal 13x128 (== scipy.fft.dct(type=2, norm='ortho')):
+    # evita 209k cos() em double (emulado, ~4 s) no S3.
+    n = np.arange(128)[None, :]
+    k = np.arange(13)[:, None]
+    raw = 2 * np.cos(np.pi * (2 * n + 1) * k / 256.0)
+    dct = raw / np.sqrt(2 * 128)
+    dct[0] /= np.sqrt(2)
+
     with open(MFCC_DIR / "mfcc_tables.h", "w") as f:
         f.write("// GERADO por tools/export_mfcc.py — não editar à mão.\n")
         f.write(f"// librosa {librosa.__version__} | sr=16000 bandpass 80-7920 SOS(5) mel128 slaney\n#pragma once\n")
@@ -113,6 +121,11 @@ def main():
             f.write(f"    {{{vals}}},\n")
         f.write("};\n\n// Savitzky-Golay order=2 width=9 interior (simetrico; bordas = mesma janela nos 9 1os/ultimos)\n")
         f.write("static const float MFCC_SG2[9] = {%s};\n" % ", ".join(C(v) for v in w2))
+        f.write("\n// DCT-II ortho 13x128 (dot float no firmware; sem cos emulado)\n")
+        f.write("static const float MFCC_DCT[13][128] = {\n")
+        for row in dct:
+            f.write("    {%s},\n" % ", ".join(C(v) for v in row))
+        f.write("};\n")
     print("wrote mfcc_tables.h")
 
     # --- 2. vetores de teste: 2 s de adrian_s1, caminho int16 igual ao device ---
