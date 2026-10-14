@@ -28,3 +28,5 @@ hardware/**/.vscode/
 
 # Binários de teste no host (rebuild via make)
 tools/mfcc_hosttest/hosttest
+tools/ns_hosttest/ns_hosttest
+tools/knn_hosttest/knn_hosttest

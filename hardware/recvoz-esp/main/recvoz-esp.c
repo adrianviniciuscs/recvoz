@@ -4,7 +4,7 @@
 // k-NN (speaker_db) -> carinha no display. Botão GPIO6 (ou `enroll`)
 // cadastra locutor novo (7 janelas de 2 s ~= 15 s) em NVS.
 //
-// Comandos seriais (115200): enroll/list/reset/tau/vad/diag
+// Comandos seriais (115200): enroll/list/reset/tau/vad/hold/diag/ns/nscal
 #include <assert.h>
 #include <ctype.h>
 #include <math.h>
@@ -19,6 +19,7 @@
 #include "driver/gpio.h"
 #include "audio_in.h"
 #include "mfcc.h"
+#include "noise_sup.h"
 #include "speaker_db.h"
 #include "recvoz_display.h"
 
@@ -39,6 +40,17 @@ static char s_enroll_name[16];
 
 static int16_t s_win[AUDIO_IN_WINDOW_SAMPLES]; // 64 KB
 static float s_m[MFCC_DIM * MFCC_N_FRAMES];    // ~20 KB
+
+// Supressão de ruído: lote de silêncio p/ calibrar o perfil (16 KB).
+// Acumulado no idle (listen_trigger, SEM trava — só memcpy de PCM) e
+// consumido no topo do loop SOB a trava s_dsp (mfcc_noise_calibrate usa
+// heap + escreve o perfil lido pelo frame_mfcc). Nunca o contrário:
+// calibrar dentro do listen_trigger travaria o VAD por ~100 ms a cada
+// decisão (a trava fica presa durante capture+classify+display).
+static int16_t s_ns_buf[NS_CAL_SAMPLES];
+static int s_ns_fill;
+static volatile int s_ns_pending;
+static int s_ns_auto = 1; // 1 = auto-calibra no silêncio; 0 = só via `nscal`
 
 // Trava o DSP: mfcc_process_window aloca ~150 KB transientes e usa os
 // buffers estáticos acima — diag (task console) x loop principal não
@@ -67,7 +79,21 @@ static int listen_trigger(void)
         ESP_ERROR_CHECK(audio_in_read(chunk, VAD_CHUNK));
         if (rms16(chunk, VAD_CHUNK) > s_vad_thr) {
             if (++hot >= VAD_HOT_N) break;
-        } else hot = 0;
+        } else {
+            hot = 0;
+            // Silêncio p/ o perfil de ruído: limiar CONSERVADOR (2/3 do VAD)
+            // p/ não vazar fala fraca no N[k] (vazar = subtrair o locutor).
+            if (s_ns_auto && !s_ns_pending && s_ns_fill < NS_CAL_SAMPLES) {
+                int r = rms16(chunk, VAD_CHUNK);
+                if (r <= s_vad_thr * 2 / 3) {
+                    int cp = NS_CAL_SAMPLES - s_ns_fill;
+                    if (cp > VAD_CHUNK) cp = VAD_CHUNK;
+                    memcpy(s_ns_buf + s_ns_fill, chunk, cp * sizeof(int16_t));
+                    s_ns_fill += cp;
+                    if (s_ns_fill >= NS_CAL_SAMPLES) s_ns_pending = 1;
+                }
+            }
+        }
     }
     return 1;
 }
@@ -223,6 +249,68 @@ static int cmd_hold(int argc, char **argv)
     else printf("hold=%d ms\n", s_hold_ms);
     return 0;
 }
+// Supressão de ruído: ns | ns on|off | ns auto on|off | ns alpha F | ns floor F | ns beta F
+static int cmd_ns(int argc, char **argv)
+{
+    float a, f;
+    if (argc == 1) {
+        ns_get_params(&a, &f);
+        printf("ns %s auto=%s pronto=%s alpha=%.2f floor=%.3f beta=%.2f\n",
+               ns_is_enabled() ? "on" : "off", s_ns_auto ? "on" : "off",
+               ns_is_ready() ? "sim" : "nao", a, f, ns_get_beta());
+        return 0;
+    }
+    if (!strcmp(argv[1], "on")) { ns_set_enabled(1); printf("ns on\n"); }
+    else if (!strcmp(argv[1], "off")) { ns_set_enabled(0); printf("ns off\n"); }
+    else if (!strcmp(argv[1], "auto") && argc > 2) {
+        s_ns_auto = !strcmp(argv[2], "on") ? 1 : 0;
+        if (!s_ns_auto) s_ns_fill = 0;
+        printf("ns auto %s\n", s_ns_auto ? "on" : "off");
+    } else if (!strcmp(argv[1], "alpha") && argc > 2) {
+        ns_get_params(&a, &f);
+        printf("%s\n", ns_set_params(strtof(argv[2], NULL), f) == 0 ? "alpha ok" : "alpha invalido (0,4]");
+    } else if (!strcmp(argv[1], "floor") && argc > 2) {
+        ns_get_params(&a, &f);
+        printf("%s\n", ns_set_params(a, strtof(argv[2], NULL)) == 0 ? "floor ok" : "floor invalido [0,0.5]");
+    } else if (!strcmp(argv[1], "beta") && argc > 2) {
+        ns_set_beta(strtof(argv[2], NULL));
+        printf("beta=%.2f\n", ns_get_beta());
+    } else {
+        printf("uso: ns [on|off|auto on|off|alpha F|floor F|beta F]\n");
+        return 1;
+    }
+    return 0;
+}
+// Força calibração agora: junta 0.5 s de SILÊNCIO (fique quieto!) e calibra.
+// Aborta se entrar voz no meio, p/ não contaminar o perfil. Buffer próprio
+// (não o s_ns_buf do idle) p/ não disputar com o listen_trigger.
+static int cmd_nscal(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    static int16_t cal[NS_CAL_SAMPLES]; // estático: console task tem pouca stack
+    static int16_t chunk[VAD_CHUNK];
+    printf("juntando 0.5 s de silencio... FIQUE QUIETO\n");
+    int got = 0, guard = 0;
+    while (got < NS_CAL_SAMPLES && guard++ < 100) {
+        if (gpio_get_level(BTN_GPIO) == 0) { printf("cancelado\n"); return 1; }
+        ESP_ERROR_CHECK(audio_in_read(chunk, VAD_CHUNK));
+        int r = rms16(chunk, VAD_CHUNK);
+        if (r > s_vad_thr * 2 / 3) { printf("voz no meio (rms=%d), abortado\n", r); return 1; }
+        int cp = NS_CAL_SAMPLES - got;
+        if (cp > VAD_CHUNK) cp = VAD_CHUNK;
+        memcpy(cal + got, chunk, cp * sizeof(int16_t));
+        got += cp;
+    }
+    if (got < NS_CAL_SAMPLES) { printf("timeout\n"); return 1; }
+    xSemaphoreTake(s_dsp, portMAX_DELAY);
+    int nf = mfcc_noise_calibrate(cal, NS_CAL_SAMPLES);
+    s_ns_fill = 0; // recomeça o acúmulo do idle do zero (descarta pré-cal)
+    xSemaphoreGive(s_dsp);
+    // Formato literal (mesmo motivo do ESP_LOGI acima; -Werror aqui).
+    if (nf > 0) printf("ns calibrado (%d frames)\n", nf);
+    else printf("ns falhou\n");
+    return nf > 0 ? 0 : 1;
+}
 // Diagnóstico: junta 1 janela (só voz) e mostra blocos + distância a cada um.
 // Fale contínuo por ~3 s após o "JUNTE".
 static int cmd_diag(int argc, char **argv)
@@ -240,6 +328,11 @@ static int cmd_diag(int argc, char **argv)
     for (int i = 0; i < speaker_db_count(); i++)
         printf(" %s=%.4f", speaker_db_name(i), speaker_db_dist_to(i, mean));
     printf(" (tau=%.4f)\n", speaker_db_get_tau());
+    float na, nf2;
+    ns_get_params(&na, &nf2);
+    printf("ns: %s pronto=%s alpha=%.2f floor=%.3f beta=%.2f\n",
+           ns_is_enabled() ? "on" : "off", ns_is_ready() ? "sim" : "nao",
+           na, nf2, ns_get_beta());
     xSemaphoreGive(s_dsp);
     return 0;
 }
@@ -259,8 +352,10 @@ static void console_init(void)
         {.command = "vad", .help = "limiar de voz (rms): vad [V]", .hint = NULL, .func = cmd_vad, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "hold", .help = "tempo do resultado no display (ms): hold [MS]", .hint = NULL, .func = cmd_hold, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "diag", .help = "captura 2 s e mostra rms + distancias", .hint = NULL, .func = cmd_diag, .argtable = NULL, .func_w_context = NULL, .context = NULL},
+        {.command = "ns", .help = "supressao de ruido: ns [on|off|auto on|off|alpha F|floor F|beta F]", .hint = NULL, .func = cmd_ns, .argtable = NULL, .func_w_context = NULL, .context = NULL},
+        {.command = "nscal", .help = "calibra o perfil de ruido agora (0.5 s de silencio)", .hint = NULL, .func = cmd_nscal, .argtable = NULL, .func_w_context = NULL, .context = NULL},
     };
-    for (int i = 0; i < 7; i++) ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[i]));
+    for (int i = 0; i < 9; i++) ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[i]));
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
 }
 
@@ -285,6 +380,8 @@ void app_main(void)
     audio_in_config_t ac = AUDIO_IN_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(audio_in_init(&ac));
     ESP_ERROR_CHECK(speaker_db_init());
+    ns_set_enabled(1); // supressão ligada desde o boot; só age após a 1ª
+                       // calibração (auto no silêncio do idle, ou `nscal`)
     s_dsp = xSemaphoreCreateMutex();
     assert(s_dsp);
     console_init();
@@ -292,7 +389,20 @@ void app_main(void)
              speaker_db_count(), BTN_GPIO);
 
     while (1) {
+        if (s_ns_pending) { // silêncio acumulado no idle -> calibra sob trava
+            xSemaphoreTake(s_dsp, portMAX_DELAY);
+            int nf = mfcc_noise_calibrate(s_ns_buf, NS_CAL_SAMPLES);
+            s_ns_fill = 0;
+            s_ns_pending = 0;
+            xSemaphoreGive(s_dsp);
+            // Formato precisa ser literal (a macro ESP_LOGI concatena a
+            // string) — nada de ternário escolhendo o formato.
+            if (nf > 0) ESP_LOGI(TAG, "ns: perfil calibrado (%d frames)", nf);
+            else ESP_LOGI(TAG, "ns: calibracao falhou");
+        }
         if (!listen_trigger()) { // enroll pedido (botão ou console)
+            s_ns_fill = 0; // descarta silêncio pré-enroll; recomeça do zero
+            s_ns_pending = 0;
             if (s_enroll_req) {
                 char nm[16];
                 snprintf(nm, sizeof nm, "%s", s_enroll_name);

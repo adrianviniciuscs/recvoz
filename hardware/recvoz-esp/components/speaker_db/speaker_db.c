@@ -1,17 +1,25 @@
-// speaker_db — base de locutores: fábrica (flash) + extras (NVS) + k-NN.
+// speaker_db — base de locutores: fábrica (flash) + extras (NVS).
+//
+// Guarda vetores (persistência); QUEM decide é o componente `knn`
+// (k-NN k=3, cosseno, voto 1/d — ver components/knn/README.md).
+// O speaker_db monta a base plana (fábrica ativa + extras, ordem mesclada)
+// e passa rótulos = posições mescladas (as mesmas de count/name).
 //
 // Fábrica = enroll_default.h (ADRIAN + PEDRO, 36 vetores), sempre disponível.
 // Extras (ex enroll "VISITANTE") vão p/ NVS "recvoz": no máx 3 locutores x
 // 8 vetores (blob de 1249 B cada — cabe folgado no limite de ~2 KB/entrada).
-// k-NN replica o sklearn do notebook: k=3, distância cosseno, peso 1/d.
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
 #include "esp_check.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "speaker_db.h"
+#include "knn.h"
 #include "enroll_default.h"
+
+#define SPK_K 3 // k do notebook (sklearn n_neighbors=3)
 
 static const char *TAG = "speaker_db";
 #define NS "recvoz"
@@ -27,23 +35,6 @@ static extra_t s_extra[SPK_EXTRA_MAX];
 static float s_tau = SPK_TAU_DEFAULT;
 static uint8_t s_ovr; // bit s = fábrica s sobrescrita por enroll ao vivo
 static int s_ok;
-
-static float cos_dist(const float *a, const float *b)
-{
-    // Sem c0 (índice 0 = energia log, depende do ganho/distância do mic,
-    // não da identidade; ele causava o overlap mesma-voz/outra-voz).
-    double d = 0, na = 0, nb = 0;
-    for (int i = 1; i < SPK_DIM; i++) {
-        d += (double)a[i] * b[i];
-        na += (double)a[i] * a[i];
-        nb += (double)b[i] * b[i];
-    }
-    if (na <= 0 || nb <= 0) return 1.0f;
-    float c = (float)(d / (sqrt(na) * sqrt(nb)));
-    if (c > 1) c = 1;
-    if (c < -1) c = -1;
-    return 1.0f - c;
-}
 
 // Nº de vetores de fábrica por locutor (conta via ENROLL_DEFAULT_LABELS).
 static int factory_nvec(int spk)
@@ -171,16 +162,53 @@ float speaker_db_dist_to(int idx, const float *mean39)
     if (fs >= 0) {
         int n = factory_nvec(fs);
         for (int j = 0; j < n; j++) {
-            float d = cos_dist(mean39, factory_vec(fs, j));
+            float d = knn_cos_dist(mean39, factory_vec(fs, j), SPK_DIM, 1);
             if (d < best) best = d;
         }
     } else {
         for (int j = 0; j < s_extra[fe].nvec; j++) {
-            float d = cos_dist(mean39, s_extra[fe].vecs[j]);
+            float d = knn_cos_dist(mean39, s_extra[fe].vecs[j], SPK_DIM, 1);
             if (d < best) best = d;
         }
     }
     return best;
+}
+
+// Junta fábrica ativa + extras em arrays planos p/ o k-NN (ordem mesclada,
+// rótulos = posições — as mesmas de count/name). Retorna nº de vetores
+// (<=0 se vazia/erro); chamador libera *vecs e *labels. skip_first=1: sem
+// c0 (energia log ~ ganho do mic, não identidade; causava overlap).
+static int gather_flat(float **out_vecs, int **out_labels)
+{
+    int n = 0, fs, fe;
+    for (int p = 0; ; p++) {
+        if (merged_resolve(p, &fs, &fe) != 0) break;
+        n += (fs >= 0) ? factory_nvec(fs) : s_extra[fe].nvec;
+    }
+    *out_vecs = NULL; *out_labels = NULL;
+    if (n <= 0) return 0;
+    float *v = (float *)malloc(n * SPK_DIM * sizeof(float));
+    int *l = (int *)malloc(n * sizeof(int));
+    if (!v || !l) { free(v); free(l); return -1; }
+    int pos = 0, c = 0;
+    for (int p = 0; ; p++) {
+        if (merged_resolve(p, &fs, &fe) != 0) break;
+        if (fs >= 0) {
+            int nv = factory_nvec(fs);
+            for (int j = 0; j < nv; j++, c++) {
+                memcpy(v + c * SPK_DIM, factory_vec(fs, j), SPK_DIM * sizeof(float));
+                l[c] = pos;
+            }
+        } else {
+            for (int j = 0; j < s_extra[fe].nvec; j++, c++) {
+                memcpy(v + c * SPK_DIM, s_extra[fe].vecs[j], SPK_DIM * sizeof(float));
+                l[c] = pos;
+            }
+        }
+        pos++;
+    }
+    *out_vecs = v; *out_labels = l;
+    return n;
 }
 
 esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec)
@@ -276,73 +304,27 @@ int speaker_db_classify_full(const float *mean39, spk_result_t *out)
     spk_result_t r = {-1, 1.0f, -1, 1.0f, -1};
     if (out) *out = r;
     if (!s_ok || !mean39) return -1;
-    // Menor distância por locutor (ordem mesclada).
-    int nspk = speaker_db_count();
-    float best1 = 1.0f, best2 = 1.0f;
-    int i1 = -1, i2 = -1;
-    for (int i = 0; i < nspk; i++) {
-        float d = speaker_db_dist_to(i, mean39);
-        if (d < best1) { best2 = best1; i2 = i1; best1 = d; i1 = i; }
-        else if (d < best2) { best2 = d; i2 = i; }
-    }
-    if (i1 < 0) return -1;
-    // Voto k-NN k=3 p/ o vencedor (idêntico ao classify clássico).
-    int w = speaker_db_classify(mean39, NULL);
-    // Se o k-NN discordar do vizinho mais próximo, vale o k-NN;
-    // o vice continua sendo o 2º por distância (didática honesta).
-    r.dmin = (w >= 0) ? speaker_db_dist_to(w, mean39) : best1;
-    r.winner = (best1 > s_tau) ? -1 : w;
-    r.nearest = i1;
-    r.runner = (i1 == w || w < 0) ? i2 : i1;
-    r.drunner = (r.runner >= 0) ? speaker_db_dist_to(r.runner, mean39) : 1.0f;
+    float *v = NULL;
+    int *l = NULL;
+    int n = gather_flat(&v, &l);
+    if (n <= 0) { free(v); free(l); return -1; }
+    knn_result_t kr;
+    knn_classify_full(mean39, v, l, n, SPK_DIM, 1, SPK_K, s_tau, &kr);
+    free(v); free(l);
+    r.winner = kr.winner; r.dmin = kr.dmin; r.runner = kr.runner;
+    r.drunner = kr.drunner; r.nearest = kr.nearest;
     if (out) *out = r;
     return r.winner;
 }
 
 int speaker_db_classify(const float *mean39, float *out_dist)
 {
-    if (!s_ok || !mean39) return -1;
-    // Junta fábrica ativa + extras numa lista plana (máx 60 vetores).
-    // spk = posição mesclada (mesma de speaker_db_name/count).
-    static struct { float d; int spk; } cand[ENROLL_DEFAULT_NVEC + SPK_EXTRA_MAX * SPK_EXTRA_VECS];
-    int nc = 0, pos = 0, fs, fe;
-    for (int p = 0; ; p++) {
-        if (merged_resolve(p, &fs, &fe) != 0) break;
-        if (fs >= 0) {
-            int n = factory_nvec(fs);
-            for (int j = 0; j < n; j++)
-                cand[nc++] = (typeof(cand[0])){cos_dist(mean39, factory_vec(fs, j)), pos};
-        } else {
-            for (int j = 0; j < s_extra[fe].nvec; j++)
-                cand[nc++] = (typeof(cand[0])){cos_dist(mean39, s_extra[fe].vecs[j]), pos};
-        }
-        pos++;
-    }
-    if (nc == 0) return -1;
-    // 3 menores (k=3 do notebook).
-    int k = nc < 3 ? nc : 3, top[3] = {-1, -1, -1};
-    for (int i = 0; i < nc; i++) {
-        for (int t = 0; t < k; t++) {
-            if (top[t] < 0 || cand[i].d < cand[top[t]].d) {
-                for (int u = k - 1; u > t; u--) top[u] = top[u - 1];
-                top[t] = i;
-                break;
-            }
-        }
-    }
-    float dmin = cand[top[0]].d;
-    if (out_dist) *out_dist = dmin;
-    if (dmin > s_tau) return -1; // DESCONHECIDO
-    if (dmin < 1e-9f) return cand[top[0]].spk; // idêntico: voto direto
-    // Voto ponderado 1/d por locutor.
-    float best_w = -1;
-    int best = cand[top[0]].spk;
-    for (int t = 0; t < k; t++) {
-        int s = cand[top[t]].spk;
-        float w = 0;
-        for (int u = 0; u < k; u++)
-            if (cand[top[u]].spk == s) w += 1.0f / (cand[top[u]].d + 1e-9f);
-        if (w > best_w) { best_w = w; best = s; }
-    }
-    return best;
+    if (!s_ok || !mean39) { if (out_dist) *out_dist = 1.0f; return -1; }
+    float *v = NULL;
+    int *l = NULL;
+    int n = gather_flat(&v, &l);
+    if (n <= 0) { free(v); free(l); if (out_dist) *out_dist = 1.0f; return -1; }
+    int w = knn_classify(mean39, v, l, n, SPK_DIM, 1, SPK_K, s_tau, out_dist);
+    free(v); free(l);
+    return w;
 }

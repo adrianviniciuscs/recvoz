@@ -28,6 +28,18 @@ extern "C" {
 void mfcc_bandpass(float *x, int n);
 
 /**
+ * @brief Calibra o supressor de ruído com um lote de SILÊNCIO (ver noise_sup.h).
+ * @param pcm  PCM int16 cru (o condicionamento é aplicado aqui dentro).
+ * @param n   nº de amostras, múltiplo de 256 (firmware usa 8192 = 0.512 s).
+ * @return nº de frames do lote ou <0 em erro. Chamar sob a trava de DSP.
+ *
+ * A 1ª chamada inicializa o perfil; demais adaptam (EMA + suavização).
+ * Não quebra a paridade: o engine nasce DESLIGADO e `mfcc_debug_frame()`
+ * nunca aplica supressão.
+ */
+int mfcc_noise_calibrate(const int16_t *pcm, int n);
+
+/**
  * @brief Janela int16 -> MFCC 39xT (row-major [39][T]).
  * @param pcm  janela de MFCC_WIN_SAMPLES (filtro aplicado fora ou não? ver abaixo)
  * @param out  saída [39][MFCC_N_FRAMES]

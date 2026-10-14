@@ -1,8 +1,8 @@
-# speaker_db — quem fala? (k-NN + NVS)
+# speaker_db — base de locutores (persistência)
 
-k-NN **idêntico ao notebook** (`k=3`, distância cosseno, voto ponderado
-por `1/d`) sobre vetores médios 39-dim. Desconhecido = menor distância
-**> τ** (padrão `0.017`, calibrável).
+Guarda vetores; **quem decide é o `knn`** (`components/knn`: k=3, distância
+cosseno sem c0, voto ponderado por `1/d` — idêntico ao notebook).
+Desconhecido = menor distância **> τ** (padrão `0.017`, calibrável).
 
 ## Base
 

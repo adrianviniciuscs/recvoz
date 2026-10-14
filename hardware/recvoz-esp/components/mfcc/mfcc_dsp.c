@@ -15,6 +15,7 @@
 #include <string.h>
 #include "mfcc.h"
 #include "mfcc_tables.h"
+#include "noise_sup.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -152,10 +153,14 @@ static void mel_to_db(float *mel)
 }
 
 // Um frame -> 13 MFCC (usa buffers temporários do chamador).
+// Supressão de ruído (ns_apply) entra AQUI: no-op bit-exato quando o
+// engine está desligado ou sem perfil — paridade com librosa preservada.
+// mfcc_debug_frame() de propósito NÃO aplica (depura os estágios crus).
 static void frame_mfcc(const float *x, int n, int t, float *out13)
 {
     float power[MFCC_N_FFT / 2 + 1], mel[MFCC_N_MELS];
     frame_power(x, n, t, power);
+    ns_apply(power);
     mel_apply(power, mel);
     mel_to_db(mel);
 
@@ -223,6 +228,35 @@ int mfcc_process_n(const int16_t *pcm, int n, float *out)
     memcpy(out + MFCC_N_MFCC * nfr, d1, MFCC_N_MFCC * nfr * sizeof(float));
     memcpy(out + 2 * MFCC_N_MFCC * nfr, d2, MFCC_N_MFCC * nfr * sizeof(float));
     free(x); free(base); free(d1); free(d2);
+    return nfr;
+}
+
+/** Calibra o perfil de ruído a partir de um lote de SILÊNCIO cru.
+ *
+ *  Passa pelo MESMO condicionamento da voz (int16/32768 + filtfilt), por
+ *  isso o perfil casa com os espectros vistos em frame_mfcc — estimar do
+ *  PCM cru e subtrair do espectro filtrado descasaria. n precisa ser
+ *  múltiplo de 256 (NS_CAL_SAMPLES=8192 no firmware). Sem malloc estático:
+ *  tudo via malloc/free como mfcc_process_n (chamar sob a trava s_dsp).
+ */
+int mfcc_noise_calibrate(const int16_t *pcm, int n)
+{
+    if (!pcm || n <= 0 || n % MFCC_HOP) return -1;
+    int nfr = 1 + n / MFCC_HOP;
+    float *x = (float *)malloc(n * sizeof(float));
+    float *avg = (float *)malloc((MFCC_N_FFT / 2 + 1) * sizeof(float));
+    float *frm = (float *)malloc((MFCC_N_FFT / 2 + 1) * sizeof(float));
+    if (!x || !avg || !frm) { free(x); free(avg); free(frm); return -1; }
+    for (int i = 0; i < n; i++) x[i] = pcm[i] / 32768.0f;
+    mfcc_bandpass(x, n);
+    memset(avg, 0, (MFCC_N_FFT / 2 + 1) * sizeof(float));
+    for (int t = 0; t < nfr; t++) {
+        frame_power(x, n, t, frm);
+        for (int k = 0; k <= MFCC_N_FFT / 2; k++) avg[k] += frm[k];
+    }
+    for (int k = 0; k <= MFCC_N_FFT / 2; k++) avg[k] /= nfr;
+    ns_update_avg(avg);
+    free(x); free(avg); free(frm);
     return nfr;
 }
 

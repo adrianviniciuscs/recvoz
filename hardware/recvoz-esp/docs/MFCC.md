@@ -193,7 +193,36 @@ Limiares do teste documentados em `tools/mfcc_hosttest/main.c`.
   é robusta à diferença — paridade validada pelo cosseno, não pela
   contagem.
 - `mfcc_debug_frame()` existe p/ depurar um frame estágio a estágio
-  (potência/mel/dB); uso só em teste.
+  (potência/mel/dB); uso só em teste. De propósito NÃO aplica supressão
+  de ruído (§12) — depura os estágios crus.
+
+## 12. Supressão de ruído (opcional, fora da paridade)
+
+Subtração espectral em potência (Berouti 1979), em `noise_sup.c` — na mão,
+só libc+libm, sem esp-dsp. Entra entre o §3.3 e o §4:
+
+$$P_{\text{limpo}}[k] = \max(P[k] - \alpha\cdot N[k],\ \mathrm{floor}\cdot P[k]), \quad k = 0..512$$
+
+- **Perfil** $N[k]$: média do espectro em 0.5 s de **silêncio** (8192
+  amostras). A calibração (`mfcc_noise_calibrate()`) passa pelo MESMO
+  `filtfilt` da voz — sem isso o perfil descasaria do espectro visto no
+  `frame_mfcc()`. 1ª calibração inicializa; demais adaptam por EMA
+  ($N \mathrel{+}= \beta(A - N)$, $\beta = 0.3$) + suavização 3-pt em
+  frequência $[0.25, 0.5, 0.25]$ contra ruído musical.
+- **Defaults**: $\alpha = 1.2$ (oversubtração), $\mathrm{floor} = 0.05$
+  (−13 dB de piso proporcional — bin nunca zera de tutto, não pisca).
+- **Custo**: perfil 513 floats (~2 KB estáticos) + 513 sub+max por frame;
+  transiente da calibração ~65 KB (heap, sob a trava `s_dsp`).
+- **Paridade**: engine nasce DESLIGADA e sem perfil `ns_apply()` é no-op
+  bit-exato — `mfcc_hosttest` continua PASS sem mudar (provado também pelo
+  T5 do `ns_hosttest`: calibrar em zeros + processar = bit-idêntico).
+- **Validação funcional** (`make -C tools/ns_hosttest run`, sintético
+  determinístico): seno 440+880 Hz + ruído branco ±3000, perfil do ruído
+  puro → distância cosseno ao limpo **0.0307 → 0.0223** (−27%).
+- **Limites**: só ruído ESTACIONÁRIO (hum/hiss/ventilador). Voz concorrente,
+  batida e reverb não resolve. O VAD que alimenta o perfil usa limiar
+  conservador (2/3 do `vad`) — vazar fala no $N[k]$ subtrai o locutor.
+  `ns_snr_db()` (10·log10 ΣP/ΣN) serve p/ conferir a calibração em sala.
 
 ## 11. Diagrama
 

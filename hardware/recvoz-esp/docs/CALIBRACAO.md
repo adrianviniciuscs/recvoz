@@ -44,6 +44,26 @@ recvoz> vad        # lê o atual
 recvoz> vad 250    # ajusta (vale até reboot; anote o final!)
 ```
 
+## 2b. Ruído de fundo (supressão espectral)
+
+O firmware subtrai o espectro do ambiente (hum, hiss, ventilador) antes do
+mel — ver `docs/MFCC.md` §12. Liga desde o boot e auto-calibra sozinho após
+~0.5 s de silêncio (log `ns: perfil calibrado`). Na sala, confira/forçe:
+
+```text
+recvoz> ns           # estado: on/auto/pronto + alpha/floor/beta
+recvoz> nscal        # FIQUE QUIETO: junta 0.5 s de silêncio e calibra agora
+recvoz> diag         # no fim mostra a linha `ns:` junto das distâncias
+```
+
+| Sintoma | Ação |
+|---|---|
+| `ns pronto=nao` nunca vira `sim` | sala barulhenta demais p/ achar 0.5 s de silêncio (limiar = 2/3 do `vad`); suba o `vad` (§2) ou use `nscal` num momento quieto |
+| Voz abafada / conhecido vira desconhecido com `ns on` | perfil contaminado com fala: `nscal` em silêncio real; se persistir, `ns alpha 1.0` (menos agressivo) ou `ns off` |
+| Chiado metálico ("ruído musical") | `ns floor 0.08` (piso mais alto) |
+
+`ns off` volta ao pipeline bit-igual ao notebook (paridade total).
+
 ## 3. Calibrar o τ (desconhecido)
 
 `tau` = distância cosseno máxima p/ aceitar como conhecido (k-NN sem c0).

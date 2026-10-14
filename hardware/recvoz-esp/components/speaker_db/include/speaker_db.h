@@ -5,7 +5,10 @@
 extern "C" {
 #endif
 
-/** k-NN igual ao notebook: k=3, cosseno, voto ponderado por 1/d.
+/** Base de locutores: persistência (fábrica em flash + extras em NVS).
+ *
+ *  O algoritmo k-NN (k=3, cosseno, voto 1/d — igual ao notebook) mora no
+ *  componente `knn`; aqui montamos a base e delegamos a decisão a ele.
  *  Base = 2 locutores de fábrica (enroll_default.h) + até 3 extras em NVS.
  */
 #define SPK_DIM 39
@@ -39,7 +42,7 @@ float speaker_db_get_tau(void);
 esp_err_t speaker_db_set_tau(float tau);
 
 /**
- * @brief Classifica vetor médio: k-NN k=3 cosseno, peso 1/d.
+ * @brief Classifica vetor médio via k-NN (delega a knn_classify, sem o c0).
  * @return índice do locutor, ou -1 = DESCONHECIDO (d_min > tau).
  * @param out_dist recebe a menor distância (p/ log/calibração, pode ser NULL).
  */

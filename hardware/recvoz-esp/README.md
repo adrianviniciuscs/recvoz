@@ -14,7 +14,8 @@ INMP441 (I2S) → audio_in → mfcc → speaker_db → recvoz_display (SSD1306)
 |---|---|---|
 | `audio_in` | INMP441 16 kHz mono + DC blocker | seu `README.md` |
 | `mfcc` | MFCC 39-dim bit-igual ao notebook | `docs/MFCC.md` |
-| `speaker_db` | k-NN k=3 + NVS (fábrica + enroll) | seu `README.md` |
+| `knn` | k-NN k=3 cosseno + τ (didático, portátil) | seu `README.md` |
+| `speaker_db` | base de locutores: fábrica + NVS (usa o `knn`) | seu `README.md` |
 | `recvoz_display` | robozinho: OUVINDO / nome / DESCONHECIDO | seu `README.md` |
 | `main` | VAD + máquina de estados + enroll + console | `docs/CALIBRACAO.md` |
 
@@ -31,8 +32,10 @@ INMP441 (I2S) → audio_in → mfcc → speaker_db → recvoz_display (SSD1306)
 ```bash
 idf.py set-target esp32s3
 idf.py build
-idf.py -p /dev/ttyACM0 flash monitor   # 115200, comandos: enroll/list/reset/tau/vad
+idf.py -p /dev/ttyACM0 flash monitor   # 115200, comandos: enroll/list/reset/tau/vad/hold/diag/ns/nscal
 make -C ../../tools/mfcc_hosttest run  # teste de paridade MFCC (gate da F1)
+make -C ../../tools/ns_hosttest run    # teste do supressor de ruído
+make -C ../../tools/knn_hosttest run   # teste do k-NN (inclui LOO 24/24)
 .venv/bin/python ../../tools/export_mfcc.py  # regenera tabelas (só se mudar o DSP)
 ```
 

@@ -7,9 +7,13 @@
 
 ```
 mic 16 kHz ──► VAD (RMS/100 ms, 3 quentes) ──► janela 2 s (32000) ──► MFCC 39×126
-  ──► média 39 ──► k-NN k=3 cosseno ──► dmin > τ? ──► 😟 DESCONHECIDO
+  ──► média 39 ──► k-NN k=3 cosseno ──► dmin > τ? ──► 🙁 DESCONHECIDO
                                                 └─► 🙂 NOME
 ```
+
+> Supressão de ruído (opcional, ligada por padrão): o silêncio do idle
+> calibra um perfil espectral subtraído antes do mel (`docs/MFCC.md` §12,
+> comandos `ns`/`nscal`). Com `ns off`, o pipeline é bit-igual ao notebook.
 
 Enroll (botão GPIO6 ou `enroll NOME`): 7 janelas de 2 s → 7 médias →
 NVS como locutor novo. A partir daí o k-NN já o conhece.
@@ -39,9 +43,11 @@ Por que a média? A identidade do locutor está no **timbre médio**
 (envelope espectral), não na fonética instantânea — e a média cancela
 variação fonêmica. É exatamente o `mean_vecs` do notebook.
 
-## 3. k-NN — quem fala? (`components/speaker_db/`)
+## 3. k-NN — quem fala? (`components/knn/` + `components/speaker_db/`)
 
-Base: **LOCUTOR_A + LOCUTOR_B de fábrica** (24 vetores em flash,
+O algoritmo mora no componente **`knn`** (puro, portátil, didático — teoria
+em `components/knn/README.md`); o **`speaker_db`** só guarda a base e monta
+a lista plana p/ votar. Base: **LOCUTOR_A + LOCUTOR_B de fábrica** (24 vetores em flash,
 `enroll_default.h`) + até **3 extras em NVS** (8 vetores cada).
 Idêntico ao sklearn do notebook (`k=3`, cosseno, peso por distância):
 

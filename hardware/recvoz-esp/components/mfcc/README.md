@@ -40,6 +40,25 @@ Resultado atual: bandpass 1.6e-06 · mel 5e-05 · **cos(vetor médio) dist 6e-08
 O erro frame-a-frame (< 2.1) vem do piso de ruído do float32 em frames de
 quase-silêncio — inofensivo p/ cosseno (documentado no hosttest).
 
+## Supressão de ruído (opcional, `noise_sup.c`)
+
+Subtração espectral em potência (Berouti), na mão, sem esp-dsp:
+
+```
+silêncio (VAD) ──► perfil N[k] ──► voz: P[k] = max(P[k] − 1.2·N[k], 0.05·P[k])
+```
+
+Entra entre `frame_power()` e `mel_apply()` (~2 KB de perfil, 513 sub+max
+por frame). Calibração por lote de 0.5 s de silêncio passa pelo **mesmo**
+filtfilt da voz (`mfcc_noise_calibrate()`), por isso o perfil casa.
+Nasce **desligada** (paridade acima intacta); o `main` liga no boot e
+auto-calibra no silêncio do idle (`ns`/`nscal` no console).
+
+Teste próprio (sintético, determinístico): `make -C tools/ns_hosttest run`.
+Cobre passthrough desligado, matemática, piso, EMA, paridade fim-a-fim com
+ruído zero (bit-idêntica) e denoising funcional (seno+ruído branco:
+distância ao limpo 0.0307 → 0.0223).
+
 ## Regenerar tabelas
 
 `mfcc_tables.h` é **gerado** (mel CSR exato do librosa + SOS + zi +
