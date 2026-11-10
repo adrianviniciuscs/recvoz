@@ -1,13 +1,4 @@
-// audio_in — captura INMP441 (I2S) p/ o recvoz.
-//
-// Portado de /home/adrian/projetos/inmp441_mic/main/main.c com duas
-// diferenças decididas em 2026-09-26 (ver docs/PINOUT.md):
-//   1. Sem VU LED (era GPIO4, conflita com o SCL do display).
-//   2. Sem streamer UART: o PCM fica no device (classificação on-board).
-//      P/ debug gravando WAV no host, usar o projeto inmp441_mic original.
-//
-// Cadeia: I2S Philips 32-bit stereo @16 kHz -> slot LEFT -> >>16 ->
-// DC blocker y[n] = x[n] - x[n-1] + 0.9957*y[n-1] (Q15 32630) -> int16.
+
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"

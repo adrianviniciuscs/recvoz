@@ -231,14 +231,6 @@ int mfcc_process_n(const int16_t *pcm, int n, float *out)
     return nfr;
 }
 
-/** Calibra o perfil de ruído a partir de um lote de SILÊNCIO cru.
- *
- *  Passa pelo MESMO condicionamento da voz (int16/32768 + filtfilt), por
- *  isso o perfil casa com os espectros vistos em frame_mfcc — estimar do
- *  PCM cru e subtrair do espectro filtrado descasaria. n precisa ser
- *  múltiplo de 256 (NS_CAL_SAMPLES=8192 no firmware). Sem malloc estático:
- *  tudo via malloc/free como mfcc_process_n (chamar sob a trava s_dsp).
- */
 int mfcc_noise_calibrate(const int16_t *pcm, int n)
 {
     if (!pcm || n <= 0 || n % MFCC_HOP) return -1;

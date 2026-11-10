@@ -1,8 +1,5 @@
-// recvoz_display — robozinho OLED SSD1306 128x64 (ESP-IDF, sem Arduino/LVGL).
-//
 // Olhos paramétricos inspirados nos presets do esp32-eyes
-// (playfultechnology / Luis Llamas, GPL-3.0): Normal 40x40, Happy 40x10,
-// Sad 40x15 com slope. Fonte 5x7 clássica Adafruit (vide font5x7.h).
+// (playfultechnology / Luis Llamas, GPL-3.0):
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>

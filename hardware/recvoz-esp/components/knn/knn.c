@@ -1,10 +1,3 @@
-// knn — k-NN com distância cosseno, voto ponderado e rejeição por limiar.
-//
-// Portátil (só libc + libm, sem ESP-IDF): o mesmo .c compila no firmware e
-// no host (tools/knn_hosttest). Sem estado global — todo scratch é
-// malloc/free por chamada (reentrante; ~600 B transientes p/ N=48).
-// A lógica é o porte fiel do que era embutido no speaker_db (k=3 do
-// notebook, atalho de idêntico, voto 1/d, gate por tau, top-2 didático).
 #include <math.h>
 #include <stdlib.h>
 #include "knn.h"

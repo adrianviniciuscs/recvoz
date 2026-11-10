@@ -1,6 +1,3 @@
-// noise_sup — subtração espectral em potência, na mão (só libc+libm).
-// Sem dependências do ESP-IDF: o mesmo .c compila no firmware e no host
-// (tools/ns_hosttest). Ver noise_sup.h p/ o contrato e os limites.
 #include <math.h>
 #include <string.h>
 #include "noise_sup.h"

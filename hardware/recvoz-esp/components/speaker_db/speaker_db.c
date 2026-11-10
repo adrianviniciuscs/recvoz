@@ -1,13 +1,3 @@
-// speaker_db — base de locutores: fábrica (flash) + extras (NVS).
-//
-// Guarda vetores (persistência); QUEM decide é o componente `knn`
-// (k-NN k=3, cosseno, voto 1/d — ver components/knn/README.md).
-// O speaker_db monta a base plana (fábrica ativa + extras, ordem mesclada)
-// e passa rótulos = posições mescladas (as mesmas de count/name).
-//
-// Fábrica = enroll_default.h (ADRIAN + PEDRO, 36 vetores), sempre disponível.
-// Extras (ex enroll "VISITANTE") vão p/ NVS "recvoz": no máx 3 locutores x
-// 8 vetores (blob de 1249 B cada — cabe folgado no limite de ~2 KB/entrada).
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
