@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_console.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "driver/gpio.h"
 #include "audio_in.h"
@@ -316,6 +317,102 @@ static int cmd_grab(int argc, char **argv)
     return 0;
 }
 
+static void bench_stats(const double *a, int n, double *mean, double *sd)
+{
+    double s = 0.0, s2 = 0.0;
+    for (int i = 0; i < n; i++) s += a[i];
+    *mean = s / n;
+    for (int i = 0; i < n; i++) { double d = a[i] - *mean; s2 += d * d; }
+    *sd = n > 1 ? sqrt(s2 / (n - 1)) : 0.0;
+}
+
+static int cmd_bench(int argc, char **argv)
+{
+    int n = (argc > 1) ? atoi(argv[1]) : 20;
+    if (n < 1) n = 1;
+    if (n > 50) n = 50;
+    for (int i = 0; i < AUDIO_IN_WINDOW_SAMPLES; i++) {
+        float t = (float)i / 16000.0f;
+        float env = 0.5f + 0.5f * sinf(2.0f * 3.14159265f * 4.0f * t);
+        float s = env * (0.45f * sinf(2.0f * 3.14159265f * 150.0f * t)
+                       + 0.30f * sinf(2.0f * 3.14159265f * 450.0f * t)
+                       + 0.15f * sinf(2.0f * 3.14159265f * 1200.0f * t));
+        s_win[i] = (int16_t)(s * 12000.0f);
+    }
+    double t_bp[50], t_stft[50], t_gmm[50], t_e2e[50], t_map[50];
+    int nspk = speaker_db_count();
+    if (nspk < 1) nspk = 1;
+    // Aquecimento (1 janela)
+    int nf = mfcc_process_window(s_win, s_m);
+    if (nf <= 0) { printf("bench: mfcc falhou (nf=%d, heap=%lu)\n", nf, (unsigned long)esp_get_free_heap_size()); return 1; }
+
+    // 1) Mede pipeline completo + GMM-UBM + MAP (sem buffer extra no heap)
+    for (int it = 0; it < n; it++) {
+        int64_t t0 = esp_timer_get_time();
+        nf = mfcc_process_window(s_win, s_m);
+        int64_t t2 = esp_timer_get_time();
+        float mean[MFCC_DIM];
+        mfcc_mean_vector(s_m, nf, mean);
+        (void)mfcc_frame_modulation(s_m, nf);
+        (void)ns_noise_dist(mean);
+        int64_t t3 = esp_timer_get_time();
+        spk_result_t r;
+        float llr1 = 0.0f, llr2 = 0.0f;
+        (void)speaker_db_classify_gmm(s_m, nf, &r, &llr1, &llr2);
+        int64_t t4 = esp_timer_get_time();
+
+        t_stft[it] = (double)(t2 - t0) / 1000.0; // mfcc_total provisorio
+        t_gmm[it] = (double)(t4 - t3) / 1000.0;
+        t_e2e[it] = (double)(t4 - t0) / 1000.0;
+
+        static gmm_adapt_ctx_t gctx;
+        static float gmeans[GMM_UBM_M * GMM_UBM_D];
+        int64_t tm0 = esp_timer_get_time();
+        gmm_adapt_init(&gctx);
+        for (int w = 0; w < ENROLL_WINS; w++) gmm_adapt_add_window(&gctx, s_m, nf);
+        gmm_adapt_finish(&gctx, gmeans);
+        int64_t tm1 = esp_timer_get_time();
+        t_map[it] = (double)(tm1 - tm0) / 1000.0;
+        vTaskDelay(1);
+    }
+    unsigned long heap_free = (unsigned long)esp_get_free_heap_size();
+    unsigned long heap_min = (unsigned long)esp_get_minimum_free_heap_size();
+    unsigned long stack_hwm = (unsigned long)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t));
+
+    // 2) Mede filtfilt isolado (em seguida libera xf)
+    float *xf = (float *)malloc(AUDIO_IN_WINDOW_SAMPLES * sizeof(float));
+    if (!xf) { puts("sem memoria para medir filtfilt"); return 1; }
+    for (int it = 0; it < n; it++) {
+        for (int i = 0; i < AUDIO_IN_WINDOW_SAMPLES; i++) xf[i] = (float)s_win[i] / 32768.0f;
+        int64_t t0 = esp_timer_get_time();
+        mfcc_bandpass(xf, AUDIO_IN_WINDOW_SAMPLES);
+        int64_t t1 = esp_timer_get_time();
+        t_bp[it] = (double)(t1 - t0) / 1000.0;
+        t_stft[it] = t_stft[it] > t_bp[it] ? (t_stft[it] - t_bp[it]) : 0.0;
+    }
+    free(xf);
+    double m_bp, s_bp, m_stft, s_stft, m_gmm, s_gmm, m_e2e, s_e2e, m_map, s_map;
+    bench_stats(t_bp, n, &m_bp, &s_bp);
+    bench_stats(t_stft, n, &m_stft, &s_stft);
+    bench_stats(t_gmm, n, &m_gmm, &s_gmm);
+    bench_stats(t_e2e, n, &m_e2e, &s_e2e);
+    bench_stats(t_map, n, &m_map, &s_map);
+    puts("RECVOZ_BENCH_START");
+    printf("N=%d NS=%d SPEAKERS=%d FRAMES=%d\n", n, ns_is_enabled(), nspk, nf);
+    printf("FILTFILT_MS=%.3f %.3f\n", m_bp, s_bp);
+    printf("STFT_MFCC_MS=%.3f %.3f\n", m_stft, s_stft);
+    printf("GMM_TOTAL_MS=%.3f %.3f\n", m_gmm, s_gmm);
+    printf("GMM_PER_SPK_MS=%.3f %.3f\n", m_gmm / nspk, s_gmm / nspk);
+    printf("MAP_ENROLL7_MS=%.3f %.3f\n", m_map, s_map);
+    printf("E2E_MS=%.3f %.3f\n", m_e2e, s_e2e);
+    printf("HEAP_FREE_B=%lu\n", heap_free);
+    printf("HEAP_MIN_B=%lu\n", heap_min);
+    printf("STACK_HWM_B=%lu\n", stack_hwm);
+    puts("RECVOZ_BENCH_END");
+    fflush(stdout);
+    return 0;
+}
+
 static int execute_command(int argc, char **argv)
 {
     if (!command_args_valid(argc, argv)) { puts("argumentos invalidos; consulte help e docs/CALIBRACAO.md"); return 1; }
@@ -329,6 +426,7 @@ static int execute_command(int argc, char **argv)
     if (!strcmp(argv[0], "ns")) return cmd_ns(argc, argv);
     if (!strcmp(argv[0], "nscal")) return cmd_nscal(argc, argv);
     if (!strcmp(argv[0], "grab")) return cmd_grab(argc, argv);
+    if (!strcmp(argv[0], "bench")) return cmd_bench(argc, argv);
     return 1;
 }
 

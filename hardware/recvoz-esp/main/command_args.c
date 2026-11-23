@@ -22,6 +22,7 @@ bool command_args_valid(int argc, char **argv)
     if (!strcmp(cmd, "vad")) return argc == 1 || (argc == 2 && number(argv[1], 1, 32767, true));
     if (!strcmp(cmd, "hold")) return argc == 1 || (argc == 2 && number(argv[1], 0, 60000, true));
     if (!strcmp(cmd, "grab")) return argc == 1 || (argc == 2 && number(argv[1], 1, 3, true));
+    if (!strcmp(cmd, "bench")) return argc == 1 || (argc == 2 && number(argv[1], 1, 50, true));
     if (!strcmp(cmd, "tau")) return argc == 1 || (argc == 2 && number(argv[1], 0, 1, false) && strtod(argv[1], NULL) > 0 && strtod(argv[1], NULL) < 1);
     if (strcmp(cmd, "ns")) return false;
     if (argc == 1) return true;

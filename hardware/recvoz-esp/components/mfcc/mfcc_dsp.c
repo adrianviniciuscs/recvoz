@@ -58,44 +58,43 @@ static void fft_fwd(float *re, float *im, int n)
 // edge = 3 * (2*n_sec+1 - correções) = 33 p/ nosso SOS(5) sem zeros.
 #define SOS_EDGE 33
 
-static void sosfilt_df2t(const float sos[MFCC_N_SOS][6], float *x, int n,
-                         const float zi[MFCC_N_SOS][2], float x0_scale)
+static void sosfilt_step(const float sos[MFCC_N_SOS][6], float d[MFCC_N_SOS][2], float *val)
 {
-    float d[MFCC_N_SOS][2];
+    float v = *val;
     for (int s = 0; s < MFCC_N_SOS; s++) {
-        d[s][0] = zi[s][0] * x0_scale;
-        d[s][1] = zi[s][1] * x0_scale;
+        const float *c = sos[s];
+        float out = c[0] * v + d[s][0];
+        d[s][0] = c[1] * v - c[4] * out + d[s][1];
+        d[s][1] = c[2] * v - c[5] * out;
+        v = out;
     }
-    for (int i = 0; i < n; i++) {
-        float v = x[i];
-        for (int s = 0; s < MFCC_N_SOS; s++) {
-            const float *c = sos[s];
-            float out = c[0] * v + d[s][0];
-            d[s][0] = c[1] * v - c[4] * out + d[s][1];
-            d[s][1] = c[2] * v - c[5] * out;
-            v = out;
-        }
-        x[i] = v;
-    }
+    *val = v;
 }
 
 void mfcc_bandpass(float *x, int n)
 {
     int e = SOS_EDGE;
     if (n <= e) return;
-    float *ext = (float *)malloc((n + 2 * e) * sizeof(float));
-    if (!ext) return;
+    float left[SOS_EDGE], right[SOS_EDGE];
     for (int i = 0; i < e; i++) {
-        ext[i] = 2 * x[0] - x[e - i];
-        ext[n + e + i] = 2 * x[n - 1] - x[n - 2 - i];
+        left[i] = 2.0f * x[0] - x[e - i];
+        right[i] = 2.0f * x[n - 1] - x[n - 2 - i];
     }
-    memcpy(ext + e, x, n * sizeof(float));
-    int m = n + 2 * e;
-    sosfilt_df2t(MFCC_SOS, ext, m, MFCC_SOS_ZI, ext[0]);
-    for (int i = 0; i < m / 2; i++) { float t = ext[i]; ext[i] = ext[m - 1 - i]; ext[m - 1 - i] = t; }
-    sosfilt_df2t(MFCC_SOS, ext, m, MFCC_SOS_ZI, ext[0]);
-    for (int i = 0; i < n; i++) x[i] = ext[m - 1 - (e + i)];
-    free(ext);
+    float d[MFCC_N_SOS][2];
+    for (int s = 0; s < MFCC_N_SOS; s++) {
+        d[s][0] = MFCC_SOS_ZI[s][0] * left[0];
+        d[s][1] = MFCC_SOS_ZI[s][1] * left[0];
+    }
+    for (int i = 0; i < e; i++) sosfilt_step(MFCC_SOS, d, &left[i]);
+    for (int i = 0; i < n; i++) sosfilt_step(MFCC_SOS, d, &x[i]);
+    for (int i = 0; i < e; i++) sosfilt_step(MFCC_SOS, d, &right[i]);
+
+    for (int s = 0; s < MFCC_N_SOS; s++) {
+        d[s][0] = MFCC_SOS_ZI[s][0] * right[e - 1];
+        d[s][1] = MFCC_SOS_ZI[s][1] * right[e - 1];
+    }
+    for (int i = e - 1; i >= 0; i--) sosfilt_step(MFCC_SOS, d, &right[i]);
+    for (int i = n - 1; i >= 0; i--) sosfilt_step(MFCC_SOS, d, &x[i]);
 }
 
 // ---------- núcleo MFCC ----------

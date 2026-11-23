@@ -315,7 +315,7 @@ O firmware é estruturado em módulos desacoplados sob FreeRTOS: \texttt{audio\_
 A persistência em NVS (\textit{Non-Volatile Storage}) utiliza versionamento explícito de limiar (\texttt{tauver = 3}) para migrar automaticamente instalações anteriores para $\tau = 0{,}42$. Cada locutor extra matriculado ao vivo ocupa um \textit{slot} contendo nome (\texttt{x\%dn}), vetores médios legados (\texttt{x\%dv}), médias GMM-UBM adaptadas (\texttt{x\%dg}, $768\text{ bytes}$) e máscara de sobrescrita de fábrica (\texttt{ovr}), permitindo substituir um locutor de fábrica pelo seu perfil gravado diretamente no microfone local sem perda de reversibilidade (\texttt{reset}).
 
 \subsection{Complexidade e Consumo de Recursos no ESP32-S3}
-A Tabela~\ref{tab:recursos} detalha o custo computacional do GMM-UBM + CMN na CPU do ESP32-S3 ($160\text{ MHz}$). O UBM completo ocupa apenas $1{,}66\text{ KiB}$ em memória flash (\texttt{const}), enquanto a pontuação de um locutor sobre $126$ quadros requer $M \cdot T \cdot D = 24\,192$ operações de diferença quadrática ponderada na FPU, tornando o custo do classificador pequeno frente ao estágio de STFT/MFCC. A Tabela~\ref{tab:latencia} reserva o perfil detalhado de latência por estágio medido diretamente na placa.
+A Tabela~\ref{tab:recursos} detalha o orçamento estático do GMM-UBM + CMN na CPU do ESP32-S3 ($160\text{ MHz}$). O UBM completo ocupa apenas $1{,}66\text{ KiB}$ em memória flash (\texttt{const}), enquanto a pontuação de um locutor sobre $126$ quadros requer $M \cdot T \cdot D = 24\,192$ operações de diferença quadrática ponderada. Para evitar pico duplo de alocação no \textit{heap} interno, o filtro passa-banda \texttt{filtfilt} opera \textit{in-place} com bordas espelhadas de $33$ amostras na pilha ($264\text{ B}$), economizando $128\text{ KiB}$ de RAM dinâmica. A Tabela~\ref{tab:latencia} apresenta o perfil real de latência e memória medido diretamente na placa via comando serial \texttt{bench 20} (\texttt{esp\_timer\_get\_time}, $N=20$ janelas, $3$ locutores ativos e supressão espectral ligada): a inferência completa pós-captura leva $961{,}8 \pm 17{,}1\text{ ms}$ ($< 1\text{ s}$), preservando $44{,}4\text{ KiB}$ de \textit{heap} livre mínimo e $3{,}95\text{ KiB}$ de margem na pilha de $8\text{ KiB}$ da tarefa principal.
 
 \begin{table}[t]
 \centering
@@ -330,7 +330,7 @@ A Tabela~\ref{tab:recursos} detalha o custo computacional do GMM-UBM + CMN na CP
 Modelo de fundo (Flash) & --- & $1{,}66\text{ KiB}$ ($M{=}8$) \\
 NVS / locutor & $1092\text{ B}$ ($7{\times}39$) & $768\text{ B}$ ($8{\times}24$) \\
 Operações / locutor & $k$-NN ($23{\times}38$) & $24\,192$ MACs \\
-Binário (\texttt{recvoz-esp.bin}) & $345{,}8\text{ KiB}$ & $348{,}7\text{ KiB}$ ($66\%$ livre) \\
+Binário (\texttt{recvoz-esp.bin}) & $345{,}8\text{ KiB}$ & $351{,}1\text{ KiB}$ ($66\%$ livre) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -339,27 +339,23 @@ Binário (\texttt{recvoz-esp.bin}) & $345{,}8\text{ KiB}$ & $348{,}7\text{ KiB}$
 \centering
 \footnotesize
 \setlength{\tabcolsep}{4pt}
-\caption{Perfil de latência e memória medidos no ESP32-S3 ($160\text{ MHz}$, média $\pm$ DP em $N=20$ janelas).}
+\caption{Perfil real de latência e memória medido no ESP32-S3 ($160\text{ MHz}$, média $\pm$ DP em $N=20$ janelas, $3$ locutores, NS ativo).}
 \label{tab:latencia}
 \begin{tabular}{lc}
 \toprule
 \textbf{Estágio / Métrica} & \textbf{Valor Medido} \\
 \midrule
-Filtro passa-banda (\texttt{filtfilt}, $32\,000$ am.) & \textit{[TODO]} ms \\
-STFT + Berouti + Mel + DCT + $\Delta/\Delta^2$ & \textit{[TODO]} ms \\
-CMN + inferência GMM-UBM (por locutor) & \textit{[TODO]} ms \\
-Adaptação MAP (\texttt{enroll}, $7$ janelas) & \textit{[TODO]} ms \\
-Latência total fim a fim (pós-captura) & \textit{[TODO]} ms \\
-Heap livre mínimo (DRAM) & \textit{[TODO]} KiB \\
+Filtro passa-banda (\texttt{filtfilt} \textit{in-place}, $32\,000$ am.) & $101{,}6 \pm 1{,}6\text{ ms}$ \\
+STFT + Berouti + Mel + DCT + $\Delta/\Delta^2$ & $491{,}3 \pm 17{,}5\text{ ms}$ \\
+CMN + inferência GMM-UBM (por locutor) & $121{,}0 \pm 1{,}0\text{ ms}$ \\
+CMN + inferência GMM-UBM ($3$ locutores) & $363{,}0 \pm 2{,}9\text{ ms}$ \\
+Adaptação MAP (\texttt{enroll}, $7$ janelas) & $1024{,}6 \pm 17{,}7\text{ ms}$ \\
+Latência total fim a fim (pós-captura) & $961{,}8 \pm 17{,}1\text{ ms}$ \\
+\textit{Heap} livre em repouso / mínimo no pico & $192{,}5\text{ KiB}$ / $44{,}4\text{ KiB}$ \\
+Margem livre na \textit{stack} \texttt{main} ($8\text{ KiB}$) & $3{,}95\text{ KiB}$ ($4040\text{ B}$) \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\todo[TODO 1 --- Medir latência e heap reais na placa (Tabela~\ref{tab:latencia})]{%
-    (1) Em \texttt{hardware/recvoz-esp/main/recognition.c} e \texttt{components/mfcc/mfcc\_dsp.c}, envolver cada estágio com \texttt{int64\_t t0 = esp\_timer\_get\_time()} e registrar \texttt{(esp\_timer\_get\_time() - t0) / 1000.0f} ms.
-    (2) Registrar também \texttt{esp\_get\_minimum\_free\_heap\_size()} e \texttt{uxTaskGetStackHighWaterMark(NULL)} após 1 classificação e 1 \texttt{enroll}.
-    (3) Coletar $20$ janelas consecutivas no monitor serial, calcular média $\pm$ desvio padrão e substituir os campos \textit{[TODO]} da Tabela~\ref{tab:latencia}.
-}
 
 \section{Resultados Experimentais}
 \label{sec:resultados}

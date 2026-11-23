@@ -59,6 +59,7 @@ void console_init(void)
         {.command = "ns", .help = "supressao de ruido: ns [on|off|auto on|off|alpha F|floor F|beta F]", .hint = NULL, .func = submit, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "nscal", .help = "calibra o perfil de ruido agora (0.5 s de silencio)", .hint = NULL, .func = submit, .argtable = NULL, .func_w_context = NULL, .context = NULL},
         {.command = "grab", .help = "envia PCM cru em Base64 pela serial: grab [SEG=2 (1..3)]", .hint = NULL, .func = submit, .argtable = NULL, .func_w_context = NULL, .context = NULL},
+        {.command = "bench", .help = "mede latencia (ms) e heap no ESP32-S3: bench [N=20 (1..50)]", .hint = NULL, .func = submit, .argtable = NULL, .func_w_context = NULL, .context = NULL},
     };
     for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++)
         ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[i]));
