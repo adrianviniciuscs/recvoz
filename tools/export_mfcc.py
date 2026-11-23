@@ -28,7 +28,7 @@ def C(value):
     return s + "f"
 
 
-def generate(staging, pcm, dataset):
+def generate(staging, pcm, dataset, ubm_frames=None):
     mfcc_dir = staging / "hardware/recvoz-esp/components/mfcc"
     db_dir = staging / "hardware/recvoz-esp/components/speaker_db"
     test_dir = staging / "tests/fixtures"
@@ -119,14 +119,16 @@ def generate(staging, pcm, dataset):
     np.savez(test_dir / 'enroll_vectors.npz', vecs=dataset.vectors, labels=dataset.labels,
              sessions=dataset.sessions, sources=dataset.sources)
 
-    # --- 3. GMM-UBM + CMN (8 Gaussianas diagonais em 24 dims: c1..c12 + Δc1..Δc12) ---
+    # --- 3. GMM-UBM + CMN-c1 (8 Gaussianas diagonais em 24 dims: c1..c12 + Δc1..Δc12) ---
     idx24 = np.r_[1:13, 14:26]
-    def cmn24(m39):
-        X = m39[idx24, :].T.astype(np.float64)
-        return X - X.mean(axis=0, keepdims=True)
+    def cmn_c1(m39):
+        X = m39[idx24, :].T.astype(np.float64).copy()
+        X[:, 0] -= X[:, 0].mean()
+        return X
 
-    X_all = np.vstack([cmn24(m) for m in dataset.frames])
-    ubm = GaussianMixture(n_components=8, covariance_type='diag', random_state=42, max_iter=100).fit(X_all)
+    pool = ubm_frames if ubm_frames is not None else dataset.frames
+    X_all = np.vstack([cmn_c1(m) for m in pool])
+    ubm = GaussianMixture(n_components=8, covariance_type='diag', reg_covar=1e-4, random_state=42, max_iter=200).fit(X_all)
     ubm_logw = np.log(ubm.weights_ + 1e-12)
     ubm_invvar = 1.0 / np.maximum(ubm.covariances_, 1e-6)
     ubm_logconst = -0.5 * np.sum(np.log(2.0 * np.pi * np.maximum(ubm.covariances_, 1e-6)), axis=1)
@@ -134,7 +136,7 @@ def generate(staging, pcm, dataset):
     r_map = 8.0
     spk_means = []
     for spk_name in names:
-        Xs = np.vstack([cmn24(m) for m, lbl in zip(dataset.frames, dataset.labels) if lbl == spk_name])
+        Xs = np.vstack([cmn_c1(m) for m, lbl in zip(dataset.frames, dataset.labels) if lbl == spk_name])
         resp = ubm.predict_proba(Xs)
         nk = resp.sum(axis=0) + 1e-12
         ek = (resp.T @ Xs) / nk[:, None]
@@ -142,7 +144,8 @@ def generate(staging, pcm, dataset):
         spk_means.append(alpha[:, None] * ek + (1.0 - alpha[:, None]) * ubm.means_)
 
     with (db_dir / 'gmm_default.h').open('w') as f:
-        f.write('// GERADO por tools/export_mfcc.py — GMM-UBM (M=8, D=24, CMN).\n#pragma once\n')
+        src_tag = 'FLEURS PT-BR' if ubm_frames is not None else 'local'
+        f.write(f'// GERADO por tools/export_mfcc.py — GMM-UBM (M=8, D=24, CMN-c1, UBM={src_tag}).\n#pragma once\n')
         f.write('#define GMM_M 8\n#define GMM_D 24\n#define GMM_R 8.0f\n')
         f.write(f'#define GMM_NSPK {len(names)}\n')
         f.write('static const float GMM_UBM_LOGW[GMM_M] = {%s};\n' % ', '.join(C(v) for v in ubm_logw))
@@ -168,6 +171,7 @@ def main():
     parser.add_argument('--audio-dir', type=Path, required=True)
     parser.add_argument('--fixture-wav', type=Path, required=True)
     parser.add_argument('--output-root', type=Path, required=True)
+    parser.add_argument('--ubm-dir', type=Path, help='Diretório opcional com WAVs externos (ex.: FLEURS PT-BR) para o UBM')
     parser.add_argument('--vad', type=int, default=300)
     args = parser.parse_args()
     try:
@@ -181,9 +185,23 @@ def main():
             raise ValueError('Firmware suporta 1..8 locutores de fábrica (máscara uint8)')
         if not np.isfinite(dataset.vectors).all():
             raise ValueError('Features não finitas')
+        ubm_frames = None
+        if args.ubm_dir:
+            from recvoz.features import auto_noise_profile, voiced_windows
+            ubm_frames = []
+            for wp in sorted(args.ubm_dir.glob('*.wav')):
+                upcm = load_audio(wp)
+                uns = auto_noise_profile(upcm, args.vad)
+                for win in voiced_windows(upcm, args.vad):
+                    mf, _ = pipeline(win.astype(np.float64) / 32768.0, noise=uns, alpha=0.8)
+                    ubm_frames.append(mf)
+                    if len(ubm_frames) >= 350:
+                        break
+                if len(ubm_frames) >= 350:
+                    break
         with tempfile.TemporaryDirectory(prefix='recvoz-export-') as tmp:
             staging = Path(tmp)
-            generate(staging, pcm, dataset)
+            generate(staging, pcm, dataset, ubm_frames=ubm_frames)
             manifest = {'pipeline': 'pcm-window-32000-v1', 'librosa': librosa.__version__,
                         'vad': args.vad, 'noise': 'auto-session-profile', 'skip_c0': True,
                         'input_sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()

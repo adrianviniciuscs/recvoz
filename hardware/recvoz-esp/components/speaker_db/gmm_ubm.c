@@ -7,19 +7,17 @@
 void gmm_cmn24_window(const float *m39xT, int n_frames, float *out_Tx24)
 {
     if (!m39xT || !out_Tx24 || n_frames <= 0) return;
-    for (int d = 0; d < 12; d++) {
-        int r1 = 1 + d;   // c1..c12
-        int r2 = 14 + d;  // Δc1..Δc12
-        double s1 = 0.0, s2 = 0.0;
-        for (int t = 0; t < n_frames; t++) {
-            s1 += m39xT[r1 * n_frames + t];
-            s2 += m39xT[r2 * n_frames + t];
-        }
-        float mu1 = (float)(s1 / n_frames);
-        float mu2 = (float)(s2 / n_frames);
-        for (int t = 0; t < n_frames; t++) {
-            out_Tx24[t * GMM_UBM_D + d] = m39xT[r1 * n_frames + t] - mu1;
-            out_Tx24[t * GMM_UBM_D + 12 + d] = m39xT[r2 * n_frames + t] - mu2;
+    // CMN seletiva em c1 (d=0): remove viés de inclinação espectral/canal
+    // preservando a assinatura do trato vocal em c2..c12 e dinâmicas Δc1..Δc12.
+    double s_c1 = 0.0;
+    for (int t = 0; t < n_frames; t++) s_c1 += m39xT[1 * n_frames + t];
+    float mu_c1 = (float)(s_c1 / n_frames);
+    for (int t = 0; t < n_frames; t++) {
+        out_Tx24[t * GMM_UBM_D + 0] = m39xT[1 * n_frames + t] - mu_c1;
+        out_Tx24[t * GMM_UBM_D + 12] = m39xT[14 * n_frames + t];
+        for (int d = 1; d < 12; d++) {
+            out_Tx24[t * GMM_UBM_D + d] = m39xT[(1 + d) * n_frames + t];
+            out_Tx24[t * GMM_UBM_D + 12 + d] = m39xT[(14 + d) * n_frames + t];
         }
     }
 }

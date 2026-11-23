@@ -15,7 +15,7 @@ extern "C" {
 #define SPK_EXTRA_MAX 3
 #define SPK_EXTRA_VECS 8   ///< 15 s de enroll = 7 janelas de 2 s (cabe)
 #define SPK_NAME_LEN 16
-#define SPK_TAU_DEFAULT 0.42f ///< limiar equivalente GMM-UBM (LLR >= +0.16; d = 0.5*(1-LLR))
+#define SPK_TAU_DEFAULT 0.70f ///< limiar equivalente GMM-UBM FLEURS (LLR >= +1.50; d = 1 - LLR/5)
 
 /** @brief nvs_flash_init + carrega extras + tau da NVS. Idempotente. */
 esp_err_t speaker_db_init(void);

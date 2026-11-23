@@ -58,13 +58,13 @@ static esp_err_t load_all(void)
     uint32_t bits = 0;
     uint8_t tauv = 0;
     nvs_get_u8(h, "tauver", &tauv);
-    if (tauv != 3) {
-        // TAU_DEFAULT mudou (-> 0.42, GMM-UBM + CMN): ignora valor
-        // antigo, grava o novo + carimba versão.
+    if (tauv != 4) {
+        // TAU_DEFAULT mudou (-> 0.62, GMM-UBM FLEURS PT-BR + CMN-c1): ignora
+        // valor antigo, grava o novo + carimba versão.
         s_tau = SPK_TAU_DEFAULT;
         memcpy(&bits, &s_tau, 4);
         esp_err_t r = nvs_set_u32(h, "tau", bits);
-        if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 3);
+        if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 4);
         if (r == ESP_OK) r = nvs_commit(h);
         if (r != ESP_OK) { nvs_close(h); return r; }
     } else if (nvs_get_u32(h, "tau", &bits) == ESP_OK) {
@@ -362,7 +362,7 @@ int speaker_db_classify(const float *mean39, float *out_dist)
 
 static float llr_to_dist(float llr)
 {
-    float d = 0.5f * (1.0f - llr);
+    float d = 1.0f - llr / 5.0f;
     if (d < 0.0f) d = 0.0f;
     if (d > 1.0f) d = 1.0f;
     return d;
