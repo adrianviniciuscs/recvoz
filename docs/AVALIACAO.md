@@ -19,19 +19,26 @@ mais janelas da mesma gravação não substituem mais sessões ou mais pessoas.
 O notebook compara cinco métodos em splits por sessão; repetições podem usar
 os mesmos splits quando a base tem poucas sessões.
 
-## Resultado local — seed 42
+## Resultado local — seed 42 (base anonimizada, 6 locutores / 113 janelas)
 
-Veja [relatório JSON](results/session-holdout.json):
+Veja [session-holdout.json](results/session-holdout.json), [open-set.json](results/open-set.json) e [benchmark-openset.json](results/benchmark-openset.json):
 
-- Treino: ADRIAN/s1, PEDRO/s2, PEDRO/s3 e PEDRO/s4.
-- Teste: ADRIAN/s2 e PEDRO/s1, total de nove janelas.
-- Identificação fechada: **9/9**.
-- Configuração: VAD 300, sem c0, supressão desligada.
-- Rejeição open-set: **não avaliada**. Faltam desconhecidos de calibração/teste
-  e uma terceira sessão de ADRIAN.
+- **Conhecidos (`audio_exemplo/`):** `S1` (3 sessões, 27 janelas) e `S2` (4 sessões, 14 janelas).
+- **Impostores de calibração (`dados/desconhecidos_cal/`):** `U1` e `U2` (6 sessões, 38 janelas).
+- **Impostores de teste (`dados/desconhecidos_teste/`):** `U3` e `U4` (6 sessões, 34 janelas).
+- **Identificação fechada (seed 42):** **14/14 (100%)** em `S1/s3` e `S2/s3`.
+- **Open-set (seed 42, 5 modelos via `tools/benchmark_openset.py`):**
+  - Centroide Cosseno: Acc 100%, FAR 2,9%, FRR 21,4%, **EER 5,0%** (10 splits: `7,3 ± 7,5%`).
+  - $k$-NN Cosseno ($k=3$): Acc 100%, FAR 8,8%, FRR 7,1%, **EER 5,0%** (10 splits: `11,7 ± 9,1%`).
+  - SVM (RBF): Acc 100%, FAR 5,9%, FRR 35,7%, **EER 29,0%** (10 splits: `22,3 ± 9,7%`).
+  - GMM Indep. + CMN: Acc 100%, FAR 0,0%, FRR 35,7%, **EER 48,7%** (10 splits: `31,3 ± 10,4%`).
+  - **GMM-UBM + CMN ($M=8$, NS $\alpha=0,8$):** Acc 100%, FAR 29,4%, FRR 7,1%, **EER 21,0%** (10 splits: `30,2 ± 8,4%`).
+- **Ablação GMM-UBM:** sem CMN o EER sobe para **64,5%** (FAR 97,1%); com CMVN vai a **38,4%**; sem NS vai a **34,0%** (FRR 21,4%).
 
-Este resultado não valida o limiar 0,017 nem o firmware com supressão automática.
-A execução na placa e a coleta de novos locutores continuam necessárias.
+O EER mais alto do GMM-UBM + CMN frente ao $k$-NN no mesmo microfone reflete o
+UBM estimado com apenas 2 locutores de treino (`S1`, `S2`). Treinar o UBM com
+um conjunto mais amplo de falantes externos continua sendo o próximo passo de
+maior impacto.
 
 ## Resultados históricos
 

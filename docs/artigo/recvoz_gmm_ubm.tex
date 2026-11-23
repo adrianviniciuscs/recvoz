@@ -58,7 +58,7 @@
 }
 
 \begin{abstract}
-Este trabalho apresenta a modelagem matemática, a implementação embarcada e a validação experimental de um sistema de identificação de locutores em conjunto aberto (\textit{open-set}) operando integralmente em um microcontrolador ESP32-S3 sem PSRAM externa ($\approx 181\text{ KiB}$ de RAM dinâmica disponível), com amostragem a $16\text{ kHz}$ via microfone MEMS I2S INMP441. Partindo do diagnóstico quantitativo das falhas de um classificador clássico baseado na média temporal de coeficientes MFCC e $k$-NN cosseno --- nomeadamente contaminação por ruído estacionário durante o cadastro ao vivo (\textit{online enrollment}), deslocamento da inclinação espectral ($c_1$) entre sessões e disparos espúrios por energia subsônica ($< 80\text{ Hz}$) ---, propõe-se um \textit{pipeline} integrado por: (i) detector de atividade vocal (VAD) passa-banda ($80\text{--}7920\text{ Hz}$) com limiar adaptativo por relação sinal-ruído ($\mathrm{SNR} \ge +6\text{ dB}$); (ii) supressão espectral de Berouti ($\alpha = 0{,}8$, piso $-13\text{ dB}$) com calibração inicial no \textit{boot}, \textit{holdoff} de $2{,}5\text{ s}$ e guarda de estacionariedade; (iii) veto de ruído por âncora cepstral e energia de modulação articulatória ($\mathrm{mod}$); e (iv) modelo probabilístico \textbf{GMM-UBM} diagonal ($M = 8$ componentes, $D = 24$ dimensões em $c_1\dots c_{12}$ e $\Delta c_1\dots \Delta c_{12}$) com Normalização da Média Cepstral (\textbf{CMN}) por janela e adaptação MAP (\textit{Maximum A Posteriori}) incremental de passo único na placa. Os experimentos iniciais demonstram $100\%$ de acurácia nos testes em conjunto fechado (\textit{holdout} por sessão e suítes unitárias C/Python), margem de \textit{Log-Likelihood Ratio} ($\mathrm{LLR}$) de $+0{,}926$ a $+1{,}298$ entre os locutores de referência e separação consistente em tempo real no hardware ($+0{,}626$ a $+0{,}872$ de margem ao vivo), consumindo apenas $768\text{ bytes}$ na NVS por locutor cadastrado. \textit{[Atualizar com FAR/FRR/EER após o TODO 3.]}
+Este trabalho apresenta a modelagem matemática, a implementação embarcada e a validação experimental de um sistema de identificação de locutores em conjunto aberto (\textit{open-set}) operando integralmente em um microcontrolador ESP32-S3 sem PSRAM externa ($\approx 181\text{ KiB}$ de RAM dinâmica disponível), com amostragem a $16\text{ kHz}$ via microfone MEMS I2S INMP441. Partindo do diagnóstico quantitativo das falhas de um classificador clássico baseado na média temporal de coeficientes MFCC e $k$-NN cosseno --- nomeadamente contaminação por ruído estacionário durante o cadastro ao vivo (\textit{online enrollment}), deslocamento da inclinação espectral ($c_1$) entre sessões e disparos espúrios por energia subsônica ($< 80\text{ Hz}$) ---, propõe-se um \textit{pipeline} integrado por: (i) detector de atividade vocal (VAD) passa-banda ($80\text{--}7920\text{ Hz}$) com limiar adaptativo por relação sinal-ruído ($\mathrm{SNR} \ge +6\text{ dB}$); (ii) supressão espectral de Berouti ($\alpha = 0{,}8$, piso $-13\text{ dB}$) com calibração inicial no \textit{boot}, \textit{holdoff} de $2{,}5\text{ s}$ e guarda de estacionariedade; (iii) veto de ruído por âncora cepstral e energia de modulação articulatória ($\mathrm{mod}$); e (iv) modelo probabilístico \textbf{GMM-UBM} diagonal ($M = 8$ componentes, $D = 24$ dimensões em $c_1\dots c_{12}$ e $\Delta c_1\dots \Delta c_{12}$) com Normalização da Média Cepstral (\textbf{CMN}) por janela e adaptação MAP (\textit{Maximum A Posteriori}) incremental de passo único na placa. Os experimentos em conjunto fechado atingem $100\%$ de acurácia (\textit{holdout} por sessão e suítes unitárias C/Python), com margem de \textit{Log-Likelihood Ratio} ($\mathrm{LLR}$) de $+0{,}926$ a $+1{,}298$ e separação consistente em tempo real no hardware ($+0{,}626$ a $+0{,}872$ de margem ao vivo), consumindo apenas $768\text{ bytes}$ na NVS por locutor cadastrado. Em avaliação \textit{open-set} com $6$ locutores ($19$ sessões, $113$ janelas), o GMM-UBM + CMN ($M=8$, NS $\alpha=0{,}8$) reduz o EER de $64{,}5\%$ (sem CMN) e $34{,}0\%$ (sem NS) para $21{,}0\%$ ($\mathrm{FRR}=7{,}1\%$, $\mathrm{FAR}=29{,}4\%$), evidenciando simultaneamente o ganho do \textit{front-end} e o impacto de treinar o UBM com apenas dois locutores frente a métodos de protótipo no mesmo microfone ($k$-NN: $\mathrm{EER}=5{,}0\%$; Centroide: $\mathrm{EER}=5{,}0\%$).
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -388,29 +388,25 @@ ESP32 ao vivo ($S_1$) & $d$: $0{,}022$ vs.\ $0{,}027$ & $\mathrm{LLR}$: $+0{,}35
 \begin{table}[t]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{3pt}
-\caption{Estudo de ablação do classificador GMM-UBM no conjunto de validação.}
+\setlength{\tabcolsep}{2.6pt}
+\caption{Estudo de ablação do GMM-UBM em conjunto aberto (seed 42; $14$ janelas conhecidas e $34$ de impostores inéditos).}
 \label{tab:ablacao}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccc}
 \toprule
-\textbf{Configuração} & \textbf{LOO} & \textbf{Margem LLR} & \textbf{EER (\%)} \\
+\textbf{Configuração} & \textbf{Acc} & \textbf{FAR} & \textbf{FRR} & \textbf{EER} \\
 \midrule
-$M{=}8$, CMN, $c{+}\Delta$, NS $\alpha{=}0{,}8$ & $23/23$ ($100\%$) & $+0{,}127$ & \textit{[TODO]} \\
-$M{=}12$, CMN, $c{+}\Delta$ & $22/23$ ($95{,}7\%$) & \textit{[TODO]} & \textit{[TODO]} \\
-$M{=}16$, CMN, $c{+}\Delta$ & $22/23$ ($95{,}7\%$) & \textit{[TODO]} & \textit{[TODO]} \\
-$M{=}32$, CMN, $c{+}\Delta$ & $18/23$ ($78{,}3\%$) & \textit{[TODO]} & \textit{[TODO]} \\
-Sem CMN ($M{=}8$, $c{+}\Delta$) & \textit{[TODO]} & \textit{[TODO]} & \textit{[TODO]} \\
-Com CMVN ($M{=}8$, $c{+}\Delta$) & \textit{[TODO]} & \textit{[TODO]} & \textit{[TODO]} \\
-Só estáticos ($M{=}8$, $c_1\dots c_{12}$) & \textit{[TODO]} & \textit{[TODO]} & \textit{[TODO]} \\
-Sem NS (NS \texttt{off}) & \textit{[TODO]} & \textit{[TODO]} & \textit{[TODO]} \\
+\textbf{$M{=}8$, CMN, $c{+}\Delta$, NS $\alpha{=}0{,}8$} & $\mathbf{100\%}$ & $\mathbf{29{,}4\%}$ & $\mathbf{7{,}1\%}$ & $\mathbf{21{,}0\%}$ \\
+$M{=}4$, CMN, $c{+}\Delta$, NS & $92{,}9\%$ & $64{,}7\%$ & $7{,}1\%$ & $35{,}5\%$ \\
+$M{=}12$, CMN, $c{+}\Delta$, NS & $100\%$ & $44{,}1\%$ & $14{,}3\%$ & $30{,}5\%$ \\
+$M{=}16$, CMN, $c{+}\Delta$, NS & $100\%$ & $44{,}1\%$ & $14{,}3\%$ & $21{,}0\%$ \\
+$M{=}32$, CMN, $c{+}\Delta$, NS & $100\%$ & $32{,}4\%$ & $14{,}3\%$ & $19{,}5\%$ \\
+Sem CMN ($M{=}8$, $c{+}\Delta$, NS) & $100\%$ & $97{,}1\%$ & $0{,}0\%$ & $64{,}5\%$ \\
+Com CMVN ($M{=}8$, $c{+}\Delta$, NS) & $92{,}9\%$ & $38{,}2\%$ & $35{,}7\%$ & $38{,}4\%$ \\
+Só estáticos ($M{=}8$, CMN, $c_1\dots c_{12}$) & $100\%$ & $41{,}2\%$ & $7{,}1\%$ & $17{,}4\%$ \\
+Sem NS ($M{=}8$, CMN, $c{+}\Delta$, NS \texttt{off}) & $100\%$ & $35{,}3\%$ & $21{,}4\%$ & $34{,}0\%$ \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\todo[TODO 2 --- Completar estudo de ablação (Tabela~\ref{tab:ablacao})]{%
-    (1) Criar um script em \texttt{tools/} ou notebook que avalie as 8 variantes da Tabela~\ref{tab:ablacao} sobre a base ampliada (com o mesmo protocolo de \textit{split} por sessão).
-    (2) Registrar acurácia fechada, margem mínima de LLR e EER (\%) para cada linha e preencher a Tabela~\ref{tab:ablacao}.
-}
 
 \begin{figure}[t]
     \centering
@@ -420,40 +416,45 @@ Sem NS (NS \texttt{off}) & \textit{[TODO]} & \textit{[TODO]} & \textit{[TODO]} \
 \end{figure}
 
 \subsection{Avaliação em Conjunto Aberto (Open-Set: FAR, FRR e EER)}
-Para validar rigorosamente a rejeição de locutores desconhecidos sem vazamento de sessão, adota-se o protocolo estrito de três partições disjuntas: (i) locutores conhecidos com ao menos três sessões independentes cada (treino, calibração de $\tau$ e teste); (ii) impostores de calibração exclusivos para seleção de $\tau^*$; e (iii) impostores de teste inéditos para estimação imparcial da Taxa de Falsa Aceitação (FAR), Taxa de Falsa Rejeição (FRR) e Taxa de Erro Igual (EER). A Tabela~\ref{tab:openset} consolida as métricas de conjunto aberto.
+Para validar rigorosamente a rejeição de locutores desconhecidos sem vazamento de sessão nem de locutor, coletou-se uma base anonimizada de $6$ locutores no INMP441 ($19$ sessões, $113$ janelas de $2\text{ s}$), particionada em três conjuntos disjuntos: (i) $2$ locutores conhecidos ($S_1$ com $3$ sessões e $S_2$ com $4$ sessões, $41$ janelas ao todo, separando treino, calibração de $\tau^*$ e teste por sessão inteira); (ii) $2$ impostores exclusivos de calibração ($U_1, U_2$, $38$ janelas); e (iii) $2$ impostores inéditos de teste ($U_3, U_4$, $34$ janelas). A Tabela~\ref{tab:openset} compara cinco classificadores --- Centroide Cosseno, $k$-NN Cosseno ($k=3$), SVM (RBF), GMM independente com CMN e GMM-UBM + CMN --- no \textit{split} principal (seed 42) e na média $\pm$ desvio padrão sobre $10$ partições únicas de sessão. As Figuras~\ref{fig:openset_roc} e~\ref{fig:openset_llr} exibem as curvas ROC e o histograma de LLR no teste \textit{open-set}.
+
+Os resultados revelam três achados relevantes: (1) na ablação do GMM-UBM (Tabela~\ref{tab:ablacao}), a ausência de CMN colapsa a rejeição de impostores ($\mathrm{FAR}=97{,}1\%$, $\mathrm{EER}=64{,}5\%$), o uso de CMVN degrada o EER para $38{,}4\%$ e desligar a supressão espectral eleva o EER de $21{,}0\%$ para $34{,}0\%$, validando o \textit{front-end} proposto com $M=8$; (2) o GMM-UBM supera amplamente o GMM independente sem UBM ($\mathrm{EER}=21{,}0\%$ vs.\ $48{,}7\%$) e o SVM-RBF ($\mathrm{EER}=29{,}0\%$, que ademais não permite cadastro incremental na placa); e (3) no mesmo microfone, métodos baseados em protótipo estático ($k$-NN e Centroide) atingem EER menor ($5{,}0\%$ na seed 42; $7{,}3\%\text{--}11{,}7\%$ em $10$ splits) do que o GMM-UBM + CMN ($21{,}0\%$ / $30{,}2\%$). Esse contraste explica-se diretamente pelo fato de o UBM embarcado ter sido estimado com apenas dois locutores ($S_1$ e $S_2$), reduzindo sua capacidade de modelar o espaço acústico universal de impostores inéditos, além de a CMN em janelas curtas ($2\text{ s}$) remover parte da média cepstral discriminante de $c_2\dots c_{12}$ em troca de imunidade ao deslocamento de canal em $c_1$.
 
 \begin{table}[t]
 \centering
-\footnotesize
-\setlength{\tabcolsep}{4pt}
-\caption{Avaliação em conjunto aberto (\textit{open-set}) com sessões e impostores disjuntos.}
+\scriptsize
+\setlength{\tabcolsep}{2.2pt}
+\caption{Comparação de 5 modelos em conjunto aberto ($S_1, S_2$ conhecidos; $U_1, U_2$ cal.; $U_3, U_4$ teste; $10$ splits de sessão).}
 \label{tab:openset}
-\begin{tabular}{lcc}
+\begin{tabular}{lccccc}
 \toprule
-\textbf{Métrica Open-Set} & \textbf{MFCC + $k$-NN} & \textbf{GMM-UBM + CMN} \\
+\textbf{Modelo} & \textbf{Acc} & \textbf{FAR (s42)} & \textbf{FRR (s42)} & \textbf{EER (s42)} & \textbf{EER (10 splits)} \\
 \midrule
-Conhecidos / sessões & \textit{[TODO]} & \textit{[TODO]} \\
-Impostores (cal / teste) & \textit{[TODO]} & \textit{[TODO]} \\
-Limiar calibrado ($\tau^*$) & \textit{[TODO]} & \textit{[TODO]} \\
-Acurácia conhecidos & \textit{[TODO]} \% & \textit{[TODO]} \% \\
-FAR (falsa aceitação) & \textit{[TODO]} \% & \textit{[TODO]} \% \\
-FRR (falsa rejeição) & \textit{[TODO]} \% & \textit{[TODO]} \% \\
-EER (curva DET/ROC) & \textit{[TODO]} \% & \textit{[TODO]} \% \\
+Centroide Cosseno & $100\%$ & $2{,}9\%$ & $21{,}4\%$ & $5{,}0\%$ & $7{,}3 \pm 7{,}5\%$ \\
+$k$-NN Cosseno ($k{=}3$) & $100\%$ & $8{,}8\%$ & $7{,}1\%$ & $5{,}0\%$ & $11{,}7 \pm 9{,}1\%$ \\
+SVM (RBF) & $100\%$ & $5{,}9\%$ & $35{,}7\%$ & $29{,}0\%$ & $22{,}3 \pm 9{,}7\%$ \\
+GMM Indep.\ + CMN & $100\%$ & $0{,}0\%$ & $35{,}7\%$ & $48{,}7\%$ & $31{,}3 \pm 10{,}4\%$ \\
+\textbf{GMM-UBM + CMN} & $\mathbf{100\%}$ & $\mathbf{29{,}4\%}$ & $\mathbf{7{,}1\%}$ & $\mathbf{21{,}0\%}$ & $\mathbf{30{,}2 \pm 8{,}4\%}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\todo[TODO 3 --- Coletar base open-set e gerar FAR/FRR/EER (Tabela~\ref{tab:openset})]{%
-    (1) Gravar no INMP441 (16 kHz mono, 15--20 s por sessão, falas diferentes entre sessões):
-    \begin{itemize}
-        \item \texttt{audio\_exemplo/locutor\_adrian\_s3.wav} (3\textordfeminine{} sessão de $S_1$; opcionalmente adicionar +1 ou +2 conhecidos com 3 sessões cada);
-        \item \texttt{dados/desconhecidos\_cal/}: 2--3 pessoas distintas;
-        \item \texttt{dados/desconhecidos\_teste/}: 3--5 outras pessoas distintas (sem repetir entre grupos);
-        \item \texttt{dados/ruido/silencio.wav}: 10 s de silêncio da sala (para \texttt{--noise-wav}).
-    \end{itemize}
-    (2) \textbf{Opcional recomendado (UBM independente):} baixar um recorte de 20--30 falantes do Common Voice PT-BR (reamostrado para 16 kHz) para treinar o UBM fora dos locutores da placa.
-    (3) Estender \texttt{src/recvoz/evaluation.py} para avaliar também o GMM-UBM + CMN (além do $k$-NN) e rodar \texttt{python -m recvoz.evaluation --audio-dir audio\_exemplo --unknown-cal dados/desconhecidos\_cal --unknown-test dados/desconhecidos\_teste --output docs/results/open-set.json}.
-    (4) Gerar figura de curva DET/ROC (e histograma de LLR conhecidos vs.\ impostores) em \texttt{docs/artigo/figs/fig\_openset\_det.png}, inserir no texto e atualizar o Resumo e a Tabela~\ref{tab:openset}.
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figs/fig_openset_roc.png}
+    \caption{Curvas ROC comparativas dos cinco classificadores no protocolo \textit{open-set} (seed 42, $14$ janelas conhecidas vs.\ $34$ janelas de impostores inéditos $U_3, U_4$).}
+    \label{fig:openset_roc}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figs/fig_openset_llr.png}
+    \caption{Distribuição dos escores LLR máximos do GMM-UBM + CMN ($M=8, D=24$) no conjunto de teste \textit{open-set} com limiar calibrado $\tau^* = +0{,}013$.}
+    \label{fig:openset_llr}
+\end{figure}
+
+\todo[TODO 3 (opcional) --- Treinar UBM em corpus externo PT-BR]{%
+    A avaliação \textit{open-set} com os 6 locutores coletados no INMP441 já está preenchida na Tabela~\ref{tab:openset} e nas Figuras~\ref{fig:openset_roc}--\ref{fig:openset_llr}. Como passo opcional de alto impacto, baixar 20--30 falantes do Common Voice PT-BR (16 kHz) para treinar um UBM verdadeiramente universal e reexecutar \texttt{tools/benchmark\_openset.py}, comparando o ganho de EER do GMM-UBM + CMN com UBM externo vs.\ UBM de 2 locutores.
 }
 
 \subsection{Medições em Tempo Real no Hardware (ESP32-S3)}
@@ -495,7 +496,7 @@ Ruído puro & --- & --- & --- & \textit{[TODO]} & \texttt{RUIDO} \\
 
 Para transparência metodológica, destacam-se as seguintes limitações do protótipo atual:
 \begin{description}
-    \item[Tamanho da base e UBM compartilhado] Os resultados preliminares reportados foram obtidos com dois locutores de referência ($23$ janelas) e com o UBM estimado sobre o mesmo conjunto de falantes. A conclusão do protocolo \textit{open-set} com impostores disjuntos e UBM treinado em corpus externo é requisito para generalização estatística.
+    \item[Tamanho da base e UBM de dois locutores] Embora a avaliação \textit{open-set} já incorpore $6$ locutores ($19$ sessões, $113$ janelas), o UBM embarcado permanece estimado sobre apenas $2$ locutores de treino ($S_1, S_2$). Como evidenciado na Tabela~\ref{tab:openset}, isso penaliza a rejeição de impostores inéditos frente a métodos de protótipo no mesmo microfone; treinar o UBM em um corpus amplo de língua portuguesa (ex.\ Common Voice PT-BR) tende a reduzir substancialmente o EER mantendo o mesmo orçamento de $1{,}66\text{ KiB}$ em Flash.
     \item[Sensibilidade a prosódia e distância] Como ilustrado na fala \#3 da Tabela~\ref{tab:live_esp}, variações bruscas de volume, distância ou fala sussurrada podem derrubar o LLR abaixo de $\tau$ mesmo quando o ranking relativo permanece correto.
     \item[Atomicidade da persistência NVS] Cada locutor cadastrado grava múltiplas chaves NVS (\texttt{x\%dn}, \texttt{x\%dv}, \texttt{x\%dg}). Embora o estado em RAM só seja atualizado após sucesso de escrita e \textit{commit}, uma interrupção abrupta de energia entre chaves não constitui transação atômica; versões futuras podem consolidar o cadastro em um único \textit{blob} versionado.
     \item[Reprodutibilidade] Todo o código-fonte do firmware ESP-IDF, o pacote Python, as suítes de teste no host ($7$ suítes C e $7$ testes Python executáveis via \texttt{make test}) e os scripts de avaliação (\texttt{make evaluate}) estão disponíveis publicamente em \url{https://github.com/adrianviniciuscs/recvoz}.
