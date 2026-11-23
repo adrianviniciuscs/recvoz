@@ -10,9 +10,9 @@
     "scikit-learn": "1.9.1"
   },
   "input_sha256": {
-    "locutor_s1_s1.wav": "c62c8880b71c503eb11f70383526f5d5b9b15212ec79599b2350cffb3b58c55e",
-    "locutor_s1_s2.wav": "98210450abec4896cf25a2fe155811a83a12e5a2b1b71c80aa4effc150462db5",
-    "locutor_s1_s3.wav": "8f6e786823ca46ca81d9e07113a885e9dfdb61f6929de094caadffc823c0b23d",
+    "locutor_s1_s1.wav": "233b747b0e93ef0564402c6731a36e9fce6e3c22990c2f35b770de3d120f5977",
+    "locutor_s1_s2.wav": "253e1ef0a570fe504542ba46334b96a9c87207b003766ef4f7edc764d8a42ccd",
+    "locutor_s1_s3.wav": "a3208a420e4f4dd0173693bcf8ec351c9be4521fdf2ba769462260cbf42d4dc2",
     "locutor_s2_s1.wav": "10e11e0c37456e1e21bd1859995a2f457f5ac6d6cb94d21d67820360f2902ae6",
     "locutor_s2_s2.wav": "64686eb7f5e9b2fdaf969ade84a74b7915973f18322f6cbe2a479bb9731e1fa8",
     "locutor_s2_s3.wav": "6edd7141ed67cf338478c5f59019cac91e50ee2d1c7a4ced95d51549cab72197",
@@ -27,7 +27,7 @@
     ],
     "confusion_matrix": [
       [
-        9,
+        5,
         0
       ],
       [
@@ -46,7 +46,7 @@
       "S1/s3",
       "S2/s3"
     ],
-    "test_windows": 14
+    "test_windows": 10
   },
   "open_set": {
     "status": "not_evaluated",

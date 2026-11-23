@@ -19,27 +19,27 @@ mais janelas da mesma gravação não substituem mais sessões ou mais pessoas.
 O notebook compara cinco métodos em splits por sessão; repetições podem usar
 os mesmos splits quando a base tem poucas sessões.
 
-## Resultado local — seed 42 (base anonimizada, 6 locutores / 113 janelas)
+## Resultado local — seed 42 (base anonimizada limpa, 6 locutores / 102 janelas)
 
 Veja [session-holdout.json](results/session-holdout.json), [open-set.json](results/open-set.json) e [benchmark-openset.json](results/benchmark-openset.json):
 
-- **Conhecidos (`audio_exemplo/`):** `S1` (3 sessões, 27 janelas) e `S2` (4 sessões, 14 janelas).
+- **Conhecidos (`audio_exemplo/`):** `S1` (3 sessões limpas, 16 janelas) e `S2` (4 sessões, 14 janelas).
 - **Impostores de calibração (`dados/desconhecidos_cal/`):** `U1` e `U2` (6 sessões, 38 janelas).
 - **Impostores de teste (`dados/desconhecidos_teste/`):** `U3` e `U4` (6 sessões, 34 janelas).
-- **Identificação fechada (seed 42):** **14/14 (100%)** em `S1/s3` e `S2/s3`.
-- **Open-set (seed 42, 5 modelos via `tools/benchmark_openset.py`):**
-  - Centroide Cosseno: Acc 100%, FAR 2,9%, FRR 21,4%, **EER 5,0%** (10 splits: `7,3 ± 7,5%`).
-  - $k$-NN Cosseno ($k=3$): Acc 100%, FAR 8,8%, FRR 7,1%, **EER 5,0%** (10 splits: `11,7 ± 9,1%`).
-  - SVM (RBF): Acc 100%, FAR 5,9%, FRR 35,7%, **EER 29,0%** (10 splits: `22,3 ± 9,7%`).
-  - GMM Indep. + CMN: Acc 100%, FAR 0,0%, FRR 35,7%, **EER 48,7%** (10 splits: `31,3 ± 10,4%`).
-  - **GMM-UBM + CMN (UBM interno, 2 loc.):** Acc 100%, FAR 29,4%, FRR 7,1%, **EER 21,0%** (10 splits: `30,2 ± 8,4%`).
-  - **GMM-UBM (UBM externo FLEURS PT-BR, CMN-$c_1$):** Acc 100%, FRR **0,0%**, **EER 1,5%** (10 splits: **`4,4 ± 3,8%`**).
-  - **GMM-UBM (UBM externo FLEURS PT-BR, sem CMN):** Acc 100%, FRR **0,0%**, **EER 1,5%** (10 splits: **`3,4 ± 3,0%`**).
-- **Ablação GMM-UBM (UBM interno):** sem CMN o EER sobe para **64,5%** (FAR 97,1%); com CMVN vai a **38,4%**; sem NS vai a **34,0%** (FRR 21,4%).
+- **Identificação fechada (seed 42):** **10/10 (100%)** em `S1/s3` e `S2/s3`.
+- **Open-set (10 splits únicos de sessão via `tools/benchmark_openset.py`):**
+  - **GMM-UBM (UBM externo FLEURS PT-BR, CMN-$c_1$):** Acc s42 **100%** (margem `+1,73`), **EER 10 splits: `37,7 ± 10,6%`** *(menor EER médio)*
+  - $k$-NN Cosseno ($k=3$): Acc s42 100%, FRR s42 80,0%, EER 10 splits: `38,7 ± 15,3%`
+  - GMM-UBM (UBM externo FLEURS PT-BR, sem CMN): Acc s42 100%, EER 10 splits: `38,9 ± 9,6%`
+  - Centroide Cosseno: Acc s42 100%, EER 10 splits: `42,6 ± 17,2%`
+  - SVM (RBF): Acc s42 90,0%, EER 10 splits: `46,1 ± 11,7%`
+  - GMM-UBM + CMN (UBM interno, 2 loc.): Acc s42 80,0%, EER 10 splits: `46,8 ± 18,1%`
+  - GMM Indep. + CMN: Acc s42 80,0%, EER 10 splits: `52,1 ± 16,1%`
 
 Com o UBM externo treinado em 350 janelas (44.100 frames) do corpus público
-*Google FLEURS PT-BR*, o GMM-UBM supera todos os demais classificadores em EER
-mantendo exatamente os mesmos `1,66 KiB` em Flash e `768 B`/locutor na NVS.
+*Google FLEURS PT-BR* e CMN seletiva em $c_1$, o GMM-UBM atinge o menor EER
+médio entre todos os classificadores avaliados mantendo exatamente os mesmos
+`1,66 KiB` em Flash e `768 B`/locutor na NVS.
 
 ## Resultados históricos
 
