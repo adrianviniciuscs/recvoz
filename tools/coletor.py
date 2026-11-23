@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interface gráfica (Tkinter) para coletar o dataset RecVoz direto do ESP32-S3."""
+"""Interface moderna (Gruvbox Dark) para coletar o dataset RecVoz direto do ESP32-S3."""
 import glob
 import re
 import shutil
@@ -8,11 +8,14 @@ import sys
 import threading
 import unicodedata
 from pathlib import Path
+
 try:
     import tkinter as tk
+    from tkinter import font as tkfont
     from tkinter import messagebox, ttk
 except ImportError:  # ambiente headless/CI sem python3-tk
     tk = None
+    tkfont = None
     messagebox = None
     ttk = None
 
@@ -27,9 +30,9 @@ from recvoz.features import auto_noise_profile, load_audio, voiced_windows  # no
 
 GROUPS = [
     ("known", "Conhecido", ROOT / "audio_exemplo"),
-    ("cal", "Impostor (Calibração)", ROOT / "dados" / "desconhecidos_cal"),
-    ("test", "Impostor (Teste)", ROOT / "dados" / "desconhecidos_teste"),
-    ("noise", "Ruído / Silêncio", ROOT / "dados" / "ruido"),
+    ("cal", "Impostor Cal", ROOT / "dados" / "desconhecidos_cal"),
+    ("test", "Impostor Teste", ROOT / "dados" / "desconhecidos_teste"),
+    ("noise", "Ruído", ROOT / "dados" / "ruido"),
 ]
 
 # Textos com ~90-105 palavras (~35-45 s de leitura natural), suficientes para 18s-30s sem faltar texto.
@@ -94,6 +97,28 @@ PROMPTS = [
     ),
 ]
 
+# Paleta Gruvbox Dark com elevação por superfície (sem bordas pesadas)
+GB = {
+    "bg0_h": "#1d2021",
+    "bg0": "#282828",
+    "bg_side": "#32302f",
+    "bg1": "#3c3836",
+    "bg2": "#504945",
+    "bg3": "#665c54",
+    "fg0": "#fbf1c7",
+    "fg1": "#ebdbb2",
+    "fg4": "#a89984",
+    "red": "#cc241d",
+    "red_hi": "#fb4934",
+    "green": "#98971a",
+    "green_hi": "#b8bb26",
+    "yellow": "#d79921",
+    "yellow_hi": "#fabd2f",
+    "aqua": "#8ec07c",
+    "orange": "#fe8019",
+    "blue_hi": "#83a598",
+}
+
 
 def find_ports():
     return sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*"))
@@ -153,41 +178,29 @@ def play_wav(path):
     return False
 
 
-# Paleta Gruvbox Dark
-GB = {
-    "bg0_h": "#1d2021",
-    "bg0": "#282828",
-    "bg1": "#3c3836",
-    "bg2": "#504945",
-    "bg3": "#665c54",
-    "fg0": "#fbf1c7",
-    "fg1": "#ebdbb2",
-    "fg4": "#a89984",
-    "red": "#cc241d",
-    "red_hi": "#fb4934",
-    "green": "#98971a",
-    "green_hi": "#b8bb26",
-    "yellow": "#d79921",
-    "yellow_hi": "#fabd2f",
-    "blue": "#458588",
-    "blue_hi": "#83a598",
-    "aqua": "#8ec07c",
-    "orange": "#fe8019",
-}
+def pick_font_family(root):
+    if tkfont is None:
+        return "TkDefaultFont"
+    available = set(tkfont.families(root))
+    for candidate in ("Inter", "Ubuntu", "Cantarell", "Noto Sans", "DejaVu Sans", "Liberation Sans"):
+        if candidate in available:
+            return candidate
+    return "TkDefaultFont"
 
 
 class ColetorApp(tk.Tk if tk is not None else object):
     def __init__(self):
         super().__init__()
-        self.title("RecVoz — Coletor de Dataset (ESP32-S3)")
-        self.geometry("940x820")
-        self.minsize(840, 720)
+        self.title("RecVoz — Coletor")
+        self.geometry("1120x740")
+        self.minsize(960, 640)
         self.configure(bg=GB["bg0"])
 
+        self.ui_font = pick_font_family(self)
         self.recording = False
         self.last_saved = None
         self.prompt_idx = 0
-        self.prompt_font_size = 13
+        self.prompt_font_size = 15
 
         self.port_var = tk.StringVar()
         self.baud_var = tk.IntVar(value=115200)
@@ -196,17 +209,29 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.name_var = tk.StringVar(value="adrian")
         self.session_var = tk.IntVar(value=1)
         self.preview_var = tk.StringVar()
-        self.banner_var = tk.StringVar(value="Pronto — posicione o microfone (~20 cm) e clique em GRAVAR (ou F5)")
-        self.quality_var = tk.StringVar(value="Nenhuma gravação realizada nesta sessão.")
-        self.summary_var = tk.StringVar()
+        self.status_badge_var = tk.StringVar(value="PRONTO PARA GRAVAR")
+        self.status_hint_var = tk.StringVar(value="Posicione o ESP32 a ~20 cm, espere 1 s em silêncio e leia o texto.")
+        self.quality_var = tk.StringVar(value="")
         self.prompt_meta_var = tk.StringVar()
+
+        self.group_btns = {}
+        self.dur_btns = {}
+        self.metric_vars = {
+            "known": tk.StringVar(value="0/0"),
+            "cal": tk.StringVar(value="0"),
+            "test": tk.StringVar(value="0"),
+        }
 
         self._setup_style()
         self._build_ui()
         self.bind("<F5>", lambda _e: self._start_record(overwrite=False))
         self._refresh_ports()
-        self._on_identity_change()
+        self._select_group("known")
+        self._select_duration(18)
         self._refresh_dataset_tree()
+
+    def _f(self, size=10, weight="normal"):
+        return (self.ui_font, size, weight)
 
     def _setup_style(self):
         style = ttk.Style(self)
@@ -214,225 +239,160 @@ class ColetorApp(tk.Tk if tk is not None else object):
             style.theme_use("clam")
 
         self.option_add("*TCombobox*Listbox.background", GB["bg1"])
-        self.option_add("*TCombobox*Listbox.foreground", GB["fg1"])
+        self.option_add("*TCombobox*Listbox.foreground", GB["fg0"])
         self.option_add("*TCombobox*Listbox.selectBackground", GB["bg2"])
         self.option_add("*TCombobox*Listbox.selectForeground", GB["yellow_hi"])
+        self.option_add("*TCombobox*Listbox.font", self._f(10))
 
-        style.configure(".", background=GB["bg0"], foreground=GB["fg1"], font=("TkDefaultFont", 10))
-        style.configure("TFrame", background=GB["bg0"])
-        style.configure("Card.TLabelframe", background=GB["bg1"], bordercolor=GB["bg2"], lightcolor=GB["bg2"], darkcolor=GB["bg2"], borderwidth=1, relief="solid")
-        style.configure("Card.TLabelframe.Label", background=GB["bg0"], foreground=GB["yellow_hi"], font=("TkDefaultFont", 10, "bold"))
-        style.configure("CardInner.TFrame", background=GB["bg1"])
-        style.configure("CardInner.TLabel", background=GB["bg1"], foreground=GB["fg1"])
-        style.configure("Muted.TLabel", background=GB["bg1"], foreground=GB["fg4"], font=("TkDefaultFont", 9))
-        style.configure("CardInner.TRadiobutton", background=GB["bg1"], foreground=GB["fg1"], indicatorcolor=GB["bg0_h"])
-        style.map(
-            "CardInner.TRadiobutton",
-            background=[("active", GB["bg1"])],
-            foreground=[("active", GB["yellow_hi"])],
-            indicatorcolor=[("selected", GB["yellow_hi"])],
-        )
-        style.configure("TButton", background=GB["bg2"], foreground=GB["fg1"], bordercolor=GB["bg3"], padding=(10, 4))
-        style.map(
-            "TButton",
-            background=[("active", GB["bg3"]), ("disabled", GB["bg1"])],
-            foreground=[("active", GB["fg0"]), ("disabled", GB["fg4"])],
-        )
-        style.configure("TEntry", fieldbackground=GB["bg0_h"], foreground=GB["fg0"], insertcolor=GB["yellow_hi"], bordercolor=GB["bg3"])
-        style.configure("TSpinbox", fieldbackground=GB["bg0_h"], foreground=GB["fg0"], arrowcolor=GB["fg1"], background=GB["bg2"], bordercolor=GB["bg3"])
-        style.configure("TCombobox", fieldbackground=GB["bg0_h"], foreground=GB["fg0"], arrowcolor=GB["fg1"], background=GB["bg2"], bordercolor=GB["bg3"])
+        style.configure("TCombobox", fieldbackground=GB["bg0_h"], foreground=GB["fg0"], arrowcolor=GB["fg1"], background=GB["bg1"], bordercolor=GB["bg2"], padding=4)
         style.map("TCombobox", fieldbackground=[("readonly", GB["bg0_h"])], foreground=[("readonly", GB["fg0"])])
-        style.configure("Horizontal.TProgressbar", troughcolor=GB["bg0_h"], background=GB["green_hi"], bordercolor=GB["bg2"], lightcolor=GB["green_hi"], darkcolor=GB["green"])
-        style.configure("Vertical.TScrollbar", background=GB["bg2"], troughcolor=GB["bg0_h"], arrowcolor=GB["fg1"], bordercolor=GB["bg1"])
-        style.configure("Treeview", background=GB["bg0_h"], fieldbackground=GB["bg0_h"], foreground=GB["fg1"], bordercolor=GB["bg2"], rowheight=24)
+        style.configure("Horizontal.TProgressbar", troughcolor=GB["bg0_h"], background=GB["green_hi"], bordercolor=GB["bg0_h"], lightcolor=GB["green_hi"], darkcolor=GB["green"], thickness=6)
+        style.configure("Vertical.TScrollbar", background=GB["bg2"], troughcolor=GB["bg0_h"], arrowcolor=GB["fg4"], bordercolor=GB["bg0_h"], relief="flat")
+        style.configure("Treeview", background=GB["bg0_h"], fieldbackground=GB["bg0_h"], foreground=GB["fg1"], bordercolor=GB["bg0_h"], borderwidth=0, rowheight=26, font=self._f(9))
         style.map("Treeview", background=[("selected", GB["bg2"])], foreground=[("selected", GB["fg0"])])
-        style.configure("Treeview.Heading", font=("TkDefaultFont", 9, "bold"), background=GB["bg2"], foreground=GB["yellow_hi"], relief="flat")
-        style.map("Treeview.Heading", background=[("active", GB["bg3"])])
+        style.configure("Treeview.Heading", font=self._f(9, "bold"), background=GB["bg1"], foreground=GB["fg4"], relief="flat", padding=(6, 4))
+        style.map("Treeview.Heading", background=[("active", GB["bg2"])])
+
+    def _flat_btn(self, parent, text, command, bg=None, fg=None, hover=None, font=None, padx=12, pady=6, width=None):
+        bg = bg or GB["bg1"]
+        fg = fg or GB["fg1"]
+        hover = hover or GB["bg2"]
+        kw = dict(
+            text=text,
+            command=command,
+            bg=bg,
+            fg=fg,
+            activebackground=hover,
+            activeforeground=GB["fg0"],
+            disabledforeground=GB["bg3"],
+            font=font or self._f(10),
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=0,
+            padx=padx,
+            pady=pady,
+            cursor="hand2",
+        )
+        if width is not None:
+            kw["width"] = width
+        return tk.Button(parent, **kw)
 
     def _build_ui(self):
-        pad = {"padx": 12, "pady": 5}
+        # ── TOP BAR ──────────────────────────────────────────────────────────
+        topbar = tk.Frame(self, bg=GB["bg0_h"], height=54)
+        topbar.pack(fill=tk.X)
+        topbar.pack_propagate(False)
 
-        # Banner de estado ao vivo (visível de longe para o voluntário)
-        self.banner = tk.Label(
-            self,
-            textvariable=self.banner_var,
-            bg=GB["bg1"],
-            fg=GB["fg0"],
-            font=("TkDefaultFont", 12, "bold"),
-            pady=10,
-            padx=14,
-            anchor=tk.W,
-        )
-        self.banner.pack(fill=tk.X)
+        brand = tk.Frame(topbar, bg=GB["bg0_h"])
+        brand.pack(side=tk.LEFT, padx=18)
+        tk.Label(brand, text="●", bg=GB["bg0_h"], fg=GB["yellow_hi"], font=self._f(13, "bold")).pack(side=tk.LEFT)
+        tk.Label(brand, text=" RecVoz", bg=GB["bg0_h"], fg=GB["fg0"], font=self._f(13, "bold")).pack(side=tk.LEFT)
+        tk.Label(brand, text="  Coletor ESP32-S3", bg=GB["bg0_h"], fg=GB["fg4"], font=self._f(10)).pack(side=tk.LEFT)
 
-        # 1. Conexão e Destino (compactos em linha)
-        top_grid = ttk.Frame(self)
-        top_grid.pack(fill=tk.X, **pad)
-        top_grid.columnconfigure(0, weight=1)
-        top_grid.columnconfigure(1, weight=2)
+        right_bar = tk.Frame(topbar, bg=GB["bg0_h"])
+        right_bar.pack(side=tk.RIGHT, padx=18)
 
-        conn = ttk.LabelFrame(top_grid, text="1. Conexão ESP32-S3", style="Card.TLabelframe")
-        conn.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        c_in = ttk.Frame(conn, style="CardInner.TFrame")
-        c_in.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+        tk.Label(right_bar, text="Duração", bg=GB["bg0_h"], fg=GB["fg4"], font=self._f(9)).pack(side=tk.LEFT, padx=(0, 6))
+        for sec in (10, 18, 24, 30):
+            b = self._flat_btn(right_bar, f"{sec}s", lambda s=sec: self._select_duration(s), padx=9, pady=4, font=self._f(9, "bold"))
+            b.pack(side=tk.LEFT, padx=2)
+            self.dur_btns[sec] = b
 
-        r1 = ttk.Frame(c_in, style="CardInner.TFrame")
-        r1.pack(fill=tk.X, pady=(0, 6))
-        ttk.Label(r1, text="Porta:", style="CardInner.TLabel").pack(side=tk.LEFT)
-        self.port_combo = ttk.Combobox(r1, textvariable=self.port_var, width=16, state="readonly")
-        self.port_combo.pack(side=tk.LEFT, padx=6)
-        ttk.Button(r1, text="Atualizar", command=self._refresh_ports).pack(side=tk.LEFT)
+        tk.Frame(right_bar, bg=GB["bg2"], width=1, height=22).pack(side=tk.LEFT, padx=14)
 
-        r2 = ttk.Frame(c_in, style="CardInner.TFrame")
-        r2.pack(fill=tk.X)
-        ttk.Label(r2, text="Duração (s):", style="CardInner.TLabel").pack(side=tk.LEFT)
-        ttk.Spinbox(r2, from_=3, to=60, increment=3, textvariable=self.dur_var, width=4).pack(side=tk.LEFT, padx=(6, 8))
-        for preset in (10, 18, 24, 30):
-            ttk.Button(r2, text=f"{preset}s", width=4, command=lambda s=preset: self.dur_var.set(s)).pack(side=tk.LEFT, padx=2)
+        tk.Label(right_bar, text="Porta", bg=GB["bg0_h"], fg=GB["fg4"], font=self._f(9)).pack(side=tk.LEFT, padx=(0, 6))
+        self.port_combo = ttk.Combobox(right_bar, textvariable=self.port_var, width=14, state="readonly", font=self._f(9))
+        self.port_combo.pack(side=tk.LEFT)
+        self._flat_btn(right_bar, "↻", self._refresh_ports, padx=8, pady=3, font=self._f(10, "bold")).pack(side=tk.LEFT, padx=(4, 0))
 
-        meta = ttk.LabelFrame(top_grid, text="2. Destino e Locutor", style="Card.TLabelframe")
-        meta.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        m_in = ttk.Frame(meta, style="CardInner.TFrame")
-        m_in.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+        # ── BODY: SIDEBAR (ESQUERDA) + ESTÚDIO (DIREITA) ────────────────────
+        body = tk.Frame(self, bg=GB["bg0"])
+        body.pack(fill=tk.BOTH, expand=True)
 
-        grp_row = ttk.Frame(m_in, style="CardInner.TFrame")
-        grp_row.pack(fill=tk.X, pady=(0, 6))
-        for key, label, _ in GROUPS:
-            ttk.Radiobutton(
-                grp_row,
-                text=label,
-                value=key,
-                variable=self.group_var,
-                command=self._on_identity_change,
-                style="CardInner.TRadiobutton",
-            ).pack(side=tk.LEFT, padx=(0, 10))
+        # Sidebar esquerda
+        side = tk.Frame(body, bg=GB["bg_side"], width=360)
+        side.pack(side=tk.LEFT, fill=tk.Y)
+        side.pack_propagate(False)
 
-        id_row = ttk.Frame(m_in, style="CardInner.TFrame")
-        id_row.pack(fill=tk.X, pady=(0, 4))
-        ttk.Label(id_row, text="Nome:", style="CardInner.TLabel").pack(side=tk.LEFT)
-        name_entry = ttk.Entry(id_row, textvariable=self.name_var, width=18)
-        name_entry.pack(side=tk.LEFT, padx=(6, 12))
-        name_entry.bind("<KeyRelease>", lambda _e: self._on_identity_change())
+        side_in = tk.Frame(side, bg=GB["bg_side"])
+        side_in.pack(fill=tk.BOTH, expand=True, padx=18, pady=16)
 
-        ttk.Label(id_row, text="Sessão s:", style="CardInner.TLabel").pack(side=tk.LEFT)
-        sess_spin = ttk.Spinbox(id_row, from_=1, to=99, textvariable=self.session_var, width=4, command=self._update_preview)
-        sess_spin.pack(side=tk.LEFT, padx=(4, 8))
-        sess_spin.bind("<KeyRelease>", lambda _e: self._update_preview())
-        ttk.Button(id_row, text="Auto sN", command=self._auto_session).pack(side=tk.LEFT)
+        tk.Label(side_in, text="TIPO DE GRAVAÇÃO", bg=GB["bg_side"], fg=GB["fg4"], font=self._f(8, "bold")).pack(anchor=tk.W, pady=(0, 8))
 
-        ttk.Label(m_in, textvariable=self.preview_var, style="CardInner.TLabel", foreground=GB["aqua"]).pack(anchor=tk.W)
+        grp_grid = tk.Frame(side_in, bg=GB["bg_side"])
+        grp_grid.pack(fill=tk.X, pady=(0, 16))
+        grp_grid.columnconfigure(0, weight=1)
+        grp_grid.columnconfigure(1, weight=1)
+        for i, (key, label, _) in enumerate(GROUPS):
+            b = self._flat_btn(grp_grid, label, lambda k=key: self._select_group(k), padx=10, pady=8, font=self._f(9, "bold"))
+            b.grid(row=i // 2, column=i % 2, sticky="ew", padx=(0 if i % 2 == 0 else 4, 4 if i % 2 == 0 else 0), pady=3)
+            self.group_btns[key] = b
 
-        # 3. Teleprompter (grande, confortável e com textos longos)
-        prompt_box = ttk.LabelFrame(
-            self,
-            text="3. Teleprompter — espere ~1 s em silêncio no início e leia em voz natural",
-            style="Card.TLabelframe",
-        )
-        prompt_box.pack(fill=tk.X, **pad)
-        p_in = ttk.Frame(prompt_box, style="CardInner.TFrame")
-        p_in.pack(fill=tk.X, padx=10, pady=8)
+        tk.Label(side_in, text="LOCUTOR E SESSÃO", bg=GB["bg_side"], fg=GB["fg4"], font=self._f(8, "bold")).pack(anchor=tk.W, pady=(0, 8))
 
-        txt_wrap = ttk.Frame(p_in, style="CardInner.TFrame")
-        txt_wrap.pack(fill=tk.X)
-        self.prompt_text = tk.Text(
-            txt_wrap,
-            height=6,
-            wrap=tk.WORD,
-            font=("TkDefaultFont", self.prompt_font_size),
+        id_row = tk.Frame(side_in, bg=GB["bg_side"])
+        id_row.pack(fill=tk.X)
+
+        self.name_entry = tk.Entry(
+            id_row,
+            textvariable=self.name_var,
             bg=GB["bg0_h"],
             fg=GB["fg0"],
             insertbackground=GB["yellow_hi"],
-            selectbackground=GB["bg2"],
-            selectforeground=GB["fg0"],
+            relief=tk.FLAT,
+            font=self._f(11, "bold"),
+            highlightthickness=1,
             highlightbackground=GB["bg2"],
             highlightcolor=GB["yellow_hi"],
-            highlightthickness=1,
+        )
+        self.name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6, ipadx=8)
+        self.name_entry.bind("<KeyRelease>", lambda _e: self._on_identity_change())
+
+        sess_box = tk.Frame(id_row, bg=GB["bg0_h"], highlightthickness=1, highlightbackground=GB["bg2"])
+        sess_box.pack(side=tk.LEFT, padx=(8, 0))
+        tk.Label(sess_box, text=" s", bg=GB["bg0_h"], fg=GB["fg4"], font=self._f(10, "bold")).pack(side=tk.LEFT)
+        self.sess_entry = tk.Entry(
+            sess_box,
+            textvariable=self.session_var,
+            width=3,
+            bg=GB["bg0_h"],
+            fg=GB["yellow_hi"],
+            insertbackground=GB["yellow_hi"],
             relief=tk.FLAT,
-            padx=14,
-            pady=10,
-            spacing1=3,
-            spacing2=4,
-            spacing3=3,
+            font=self._f(11, "bold"),
+            justify=tk.CENTER,
         )
-        p_scroll = ttk.Scrollbar(txt_wrap, orient=tk.VERTICAL, command=self.prompt_text.yview)
-        self.prompt_text.configure(yscrollcommand=p_scroll.set)
-        self.prompt_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        p_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._set_prompt(0)
+        self.sess_entry.pack(side=tk.LEFT, ipady=6)
+        self.sess_entry.bind("<KeyRelease>", lambda _e: self._update_preview())
 
-        p_btns = ttk.Frame(p_in, style="CardInner.TFrame")
-        p_btns.pack(fill=tk.X, pady=(6, 0))
-        ttk.Button(p_btns, text="◀ Anterior", command=lambda: self._set_prompt(self.prompt_idx - 1)).pack(side=tk.LEFT)
-        ttk.Button(p_btns, text="Próximo texto ▶", command=self._next_prompt).pack(side=tk.LEFT, padx=6)
-        ttk.Button(p_btns, text="A-", width=3, command=lambda: self._change_font(-1)).pack(side=tk.LEFT, padx=(12, 2))
-        ttk.Button(p_btns, text="A+", width=3, command=lambda: self._change_font(1)).pack(side=tk.LEFT, padx=2)
-        ttk.Label(p_btns, textvariable=self.prompt_meta_var, style="Muted.TLabel").pack(side=tk.RIGHT)
+        tk.Label(side_in, textvariable=self.preview_var, bg=GB["bg_side"], fg=GB["aqua"], font=self._f(9)).pack(anchor=tk.W, pady=(6, 16))
 
-        # 4. Controles de Gravação
-        rec_box = ttk.LabelFrame(self, text="4. Captura e Checagem Automática", style="Card.TLabelframe")
-        rec_box.pack(fill=tk.X, **pad)
-        r_in = ttk.Frame(rec_box, style="CardInner.TFrame")
-        r_in.pack(fill=tk.X, padx=10, pady=8)
+        # Mini cards de progresso do dataset
+        tk.Label(side_in, text="PROGRESSO DO DATASET", bg=GB["bg_side"], fg=GB["fg4"], font=self._f(8, "bold")).pack(anchor=tk.W, pady=(0, 8))
 
-        btn_row = ttk.Frame(r_in, style="CardInner.TFrame")
-        btn_row.pack(fill=tk.X, pady=(0, 6))
+        cards = tk.Frame(side_in, bg=GB["bg_side"])
+        cards.pack(fill=tk.X, pady=(0, 12))
+        for col, (k, title, sub) in enumerate([("known", "Conhecidos", "≥3 sess."), ("cal", "Imp. Cal", "meta 2+"), ("test", "Imp. Teste", "meta 3+")]):
+            cards.columnconfigure(col, weight=1)
+            c = tk.Frame(cards, bg=GB["bg1"], padx=8, pady=8)
+            c.grid(row=0, column=col, sticky="ew", padx=(0 if col == 0 else 4, 0))
+            tk.Label(c, textvariable=self.metric_vars[k], bg=GB["bg1"], fg=GB["yellow_hi"], font=self._f(13, "bold")).pack(anchor=tk.W)
+            tk.Label(c, text=title, bg=GB["bg1"], fg=GB["fg1"], font=self._f(8, "bold")).pack(anchor=tk.W)
+            tk.Label(c, text=sub, bg=GB["bg1"], fg=GB["fg4"], font=self._f(8)).pack(anchor=tk.W)
 
-        self.rec_btn = tk.Button(
-            btn_row,
-            text="●  GRAVAR  (F5)",
-            command=lambda: self._start_record(overwrite=False),
-            bg=GB["red"],
-            fg=GB["fg0"],
-            activebackground=GB["red_hi"],
-            activeforeground=GB["fg0"],
-            disabledforeground=GB["fg4"],
-            font=("TkDefaultFont", 12, "bold"),
-            relief=tk.FLAT,
-            padx=22,
-            pady=7,
-            cursor="hand2",
-        )
-        self.rec_btn.pack(side=tk.LEFT)
+        # Lista de arquivos gravados
+        list_hdr = tk.Frame(side_in, bg=GB["bg_side"])
+        list_hdr.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(list_hdr, text="ARQUIVOS GRAVADOS", bg=GB["bg_side"], fg=GB["fg4"], font=self._f(8, "bold")).pack(side=tk.LEFT)
+        self._flat_btn(list_hdr, "↻", self._refresh_dataset_tree, bg=GB["bg_side"], fg=GB["fg4"], hover=GB["bg1"], padx=6, pady=1, font=self._f(9)).pack(side=tk.RIGHT)
 
-        self.rerec_btn = ttk.Button(
-            btn_row, text="Regravar último", command=lambda: self._start_record(overwrite=True), state=tk.DISABLED
-        )
-        self.rerec_btn.pack(side=tk.LEFT, padx=8)
-
-        self.play_btn = ttk.Button(btn_row, text="▶ Ouvir último", command=self._play_last, state=tk.DISABLED)
-        self.play_btn.pack(side=tk.LEFT, padx=4)
-
-        self.prog = ttk.Progressbar(btn_row, mode="determinate", length=280)
-        self.prog.pack(side=tk.RIGHT, padx=4)
-
-        self.quality_lbl = ttk.Label(r_in, textvariable=self.quality_var, style="CardInner.TLabel", font=("TkDefaultFont", 10, "bold"))
-        self.quality_lbl.pack(anchor=tk.W)
-
-        # 5. Progresso do Dataset
-        ds_box = ttk.LabelFrame(self, text="5. Dataset Atual no Disco", style="Card.TLabelframe")
-        ds_box.pack(fill=tk.BOTH, expand=True, **pad)
-        d_in = ttk.Frame(ds_box, style="CardInner.TFrame")
-        d_in.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
-
-        top_ds = ttk.Frame(d_in, style="CardInner.TFrame")
-        top_ds.pack(fill=tk.X, pady=(0, 6))
-        ttk.Label(top_ds, textvariable=self.summary_var, style="CardInner.TLabel", font=("TkDefaultFont", 9, "bold")).pack(side=tk.LEFT)
-        ttk.Button(top_ds, text="Recarregar lista", command=self._refresh_dataset_tree).pack(side=tk.RIGHT)
-
-        tree_wrap = ttk.Frame(d_in, style="CardInner.TFrame")
+        tree_wrap = tk.Frame(side_in, bg=GB["bg0_h"])
         tree_wrap.pack(fill=tk.BOTH, expand=True)
-        cols = ("grupo", "arquivo", "dur", "janelas", "ruido")
-        self.tree = ttk.Treeview(tree_wrap, columns=cols, show="headings", height=7)
-        self.tree.heading("grupo", text="Grupo")
+        self.tree = ttk.Treeview(tree_wrap, columns=("arquivo", "info"), show="headings")
         self.tree.heading("arquivo", text="Arquivo")
-        self.tree.heading("dur", text="Duração")
-        self.tree.heading("janelas", text="Janelas VAD")
-        self.tree.heading("ruido", text="Auto-Ruído")
-        self.tree.column("grupo", width=155, anchor=tk.W)
-        self.tree.column("arquivo", width=360, anchor=tk.W)
-        self.tree.column("dur", width=85, anchor=tk.CENTER)
-        self.tree.column("janelas", width=95, anchor=tk.CENTER)
-        self.tree.column("ruido", width=95, anchor=tk.CENTER)
+        self.tree.heading("info", text="VAD / Ruído")
+        self.tree.column("arquivo", width=200, anchor=tk.W)
+        self.tree.column("info", width=95, anchor=tk.E)
         self.tree.tag_configure("ok", foreground=GB["green_hi"])
         self.tree.tag_configure("warn", foreground=GB["orange"])
 
@@ -441,13 +401,118 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         t_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-    def _set_banner(self, text, bg="#e2e8f0", fg="#0f172a"):
-        self.banner_var.set(text)
-        self.banner.configure(bg=bg, fg=fg)
+        # ── ESTÚDIO (DIREITA) ────────────────────────────────────────────────
+        studio = tk.Frame(body, bg=GB["bg0"])
+        studio.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=24, pady=20)
+
+        # Cabeçalho de status limpo
+        status_card = tk.Frame(studio, bg=GB["bg1"], padx=16, pady=12)
+        status_card.pack(fill=tk.X, pady=(0, 14))
+        self.status_card = status_card
+
+        self.badge_lbl = tk.Label(status_card, textvariable=self.status_badge_var, bg=GB["bg2"], fg=GB["fg0"], font=self._f(9, "bold"), padx=10, pady=3)
+        self.badge_lbl.pack(side=tk.LEFT)
+
+        self.hint_lbl = tk.Label(status_card, textvariable=self.status_hint_var, bg=GB["bg1"], fg=GB["fg1"], font=self._f(10), padx=12)
+        self.hint_lbl.pack(side=tk.LEFT, fill=tk.X)
+
+        # Teleprompter Hero
+        prompt_hdr = tk.Frame(studio, bg=GB["bg0"])
+        prompt_hdr.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(prompt_hdr, text="TELEPROMPTER", bg=GB["bg0"], fg=GB["fg4"], font=self._f(8, "bold")).pack(side=tk.LEFT)
+        tk.Label(prompt_hdr, textvariable=self.prompt_meta_var, bg=GB["bg0"], fg=GB["fg4"], font=self._f(9)).pack(side=tk.RIGHT)
+
+        tp_wrap = tk.Frame(studio, bg=GB["bg0_h"], padx=4, pady=4)
+        tp_wrap.pack(fill=tk.BOTH, expand=True)
+
+        self.prompt_text = tk.Text(
+            tp_wrap,
+            wrap=tk.WORD,
+            font=self._f(self.prompt_font_size),
+            bg=GB["bg0_h"],
+            fg=GB["fg0"],
+            insertbackground=GB["yellow_hi"],
+            selectbackground=GB["bg2"],
+            selectforeground=GB["fg0"],
+            relief=tk.FLAT,
+            bd=0,
+            padx=22,
+            pady=18,
+            spacing1=4,
+            spacing2=8,
+            spacing3=4,
+        )
+        p_scroll = ttk.Scrollbar(tp_wrap, orient=tk.VERTICAL, command=self.prompt_text.yview)
+        self.prompt_text.configure(yscrollcommand=p_scroll.set)
+        self.prompt_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        p_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._set_prompt(0)
+
+        tp_bar = tk.Frame(studio, bg=GB["bg0"])
+        tp_bar.pack(fill=tk.X, pady=(8, 16))
+        self._flat_btn(tp_bar, "◀  Anterior", lambda: self._set_prompt(self.prompt_idx - 1), padx=12, pady=5, font=self._f(9)).pack(side=tk.LEFT)
+        self._flat_btn(tp_bar, "Próximo texto  ▶", self._next_prompt, padx=12, pady=5, font=self._f(9)).pack(side=tk.LEFT, padx=6)
+        self._flat_btn(tp_bar, "A+", lambda: self._change_font(1), padx=10, pady=5, font=self._f(9, "bold")).pack(side=tk.RIGHT)
+        self._flat_btn(tp_bar, "A-", lambda: self._change_font(-1), padx=10, pady=5, font=self._f(9, "bold")).pack(side=tk.RIGHT, padx=(0, 4))
+
+        # Barra de progresso fina
+        self.prog = ttk.Progressbar(studio, mode="determinate")
+        self.prog.pack(fill=tk.X, pady=(0, 12))
+
+        # Botões principais de ação
+        actions = tk.Frame(studio, bg=GB["bg0"])
+        actions.pack(fill=tk.X)
+
+        self.rec_btn = self._flat_btn(
+            actions,
+            "●   GRAVAR   (F5)",
+            lambda: self._start_record(overwrite=False),
+            bg=GB["red"],
+            fg=GB["fg0"],
+            hover=GB["red_hi"],
+            font=self._f(13, "bold"),
+            padx=28,
+            pady=12,
+        )
+        self.rec_btn.pack(side=tk.LEFT)
+
+        self.play_btn = self._flat_btn(actions, "▶  Ouvir", self._play_last, padx=16, pady=12, font=self._f(10, "bold"))
+        self.play_btn.configure(state=tk.DISABLED)
+        self.play_btn.pack(side=tk.LEFT, padx=(10, 0))
+
+        self.rerec_btn = self._flat_btn(actions, "↻  Regravar", lambda: self._start_record(overwrite=True), padx=16, pady=12, font=self._f(10, "bold"))
+        self.rerec_btn.configure(state=tk.DISABLED)
+        self.rerec_btn.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.quality_lbl = tk.Label(studio, textvariable=self.quality_var, bg=GB["bg0"], fg=GB["fg4"], font=self._f(10, "bold"), anchor=tk.W)
+        self.quality_lbl.pack(fill=tk.X, pady=(10, 0))
+
+    # ── INTERAÇÃO ────────────────────────────────────────────────────────────
+    def _select_group(self, key):
+        self.group_var.set(key)
+        for k, btn in self.group_btns.items():
+            if k == key:
+                btn.configure(bg=GB["yellow_hi"], fg=GB["bg0_h"], activebackground=GB["yellow"])
+            else:
+                btn.configure(bg=GB["bg1"], fg=GB["fg1"], activebackground=GB["bg2"])
+        self._on_identity_change()
+
+    def _select_duration(self, sec):
+        self.dur_var.set(sec)
+        for s, btn in self.dur_btns.items():
+            if s == sec:
+                btn.configure(bg=GB["yellow_hi"], fg=GB["bg0_h"], activebackground=GB["yellow"])
+            else:
+                btn.configure(bg=GB["bg1"], fg=GB["fg1"], activebackground=GB["bg2"])
+
+    def _set_status(self, badge, hint, badge_bg, badge_fg=None):
+        self.status_badge_var.set(badge)
+        self.status_hint_var.set(hint)
+        self.badge_lbl.configure(bg=badge_bg, fg=badge_fg or GB["fg0"])
 
     def _change_font(self, delta):
-        self.prompt_font_size = max(10, min(22, self.prompt_font_size + delta))
-        self.prompt_text.configure(font=("TkDefaultFont", self.prompt_font_size))
+        self.prompt_font_size = max(11, min(24, self.prompt_font_size + delta))
+        self.prompt_text.configure(font=self._f(self.prompt_font_size))
 
     def _refresh_ports(self):
         ports = find_ports()
@@ -466,7 +531,7 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.prompt_text.delete("1.0", tk.END)
         self.prompt_text.insert("1.0", txt)
         self.prompt_text.config(state=tk.DISABLED)
-        self.prompt_meta_var.set(f"Texto {self.prompt_idx + 1}/{len(PROMPTS)}  •  {words} palavras (~{est_sec} s de leitura)")
+        self.prompt_meta_var.set(f"Texto {self.prompt_idx + 1}/{len(PROMPTS)}  ·  {words} palavras (~{est_sec}s)")
 
     def _next_prompt(self):
         self._set_prompt(self.prompt_idx + 1)
@@ -476,11 +541,8 @@ class ColetorApp(tk.Tk if tk is not None else object):
         folder = dict((k, d) for k, _, d in GROUPS)[group_key]
         name = sanitize_name(self.name_var.get())
         if group_key == "noise":
-            if folder.exists():
-                existing = sorted(folder.glob(f"{name}_s*.wav")) if name else []
-                self.session_var.set(len(existing) + 1)
-            else:
-                self.session_var.set(1)
+            existing = sorted(folder.glob(f"{name}_s*.wav")) if (folder.exists() and name) else []
+            self.session_var.set(len(existing) + 1)
         else:
             self.session_var.set(next_session_number(folder, name))
         self._update_preview()
@@ -495,25 +557,29 @@ class ColetorApp(tk.Tk if tk is not None else object):
             sess = 1
         out = build_output_path(self.group_var.get(), self.name_var.get(), sess)
         if out is None:
-            self.preview_var.set("Saída: (informe um nome válido)")
+            self.preview_var.set("Digite um nome para o locutor")
         else:
             rel = out.relative_to(ROOT)
-            exists_tag = "  [JÁ EXISTE]" if out.exists() else ""
-            self.preview_var.set(f"Saída: {rel}{exists_tag}")
+            exists_tag = "  (já existe)" if out.exists() else ""
+            self.preview_var.set(f"→ {rel}{exists_tag}")
 
     def _set_busy(self, busy):
         self.recording = busy
-        state = tk.DISABLED if busy else tk.NORMAL
-        self.rec_btn.config(state=state, text="GRAVANDO..." if busy else "●  GRAVAR  (F5)")
-        self.rerec_btn.config(state=tk.DISABLED if (busy or not self.last_saved) else tk.NORMAL)
-        self.play_btn.config(state=tk.DISABLED if (busy or not self.last_saved) else tk.NORMAL)
+        self.rec_btn.config(
+            state=tk.DISABLED if busy else tk.NORMAL,
+            text="●   GRAVANDO..." if busy else "●   GRAVAR   (F5)",
+            bg=GB["bg2"] if busy else GB["red"],
+        )
+        sec_state = tk.DISABLED if (busy or not self.last_saved) else tk.NORMAL
+        self.rerec_btn.config(state=sec_state)
+        self.play_btn.config(state=sec_state)
 
     def _start_record(self, overwrite=False):
         if self.recording:
             return
         port = self.port_var.get()
         if not port:
-            messagebox.showerror("Porta não encontrada", "Conecte o ESP32-S3 e clique em 'Atualizar'.")
+            messagebox.showerror("Porta não encontrada", "Conecte o ESP32-S3 e clique em ↻ ao lado da porta.")
             return
 
         if overwrite and self.last_saved is not None:
@@ -526,10 +592,10 @@ class ColetorApp(tk.Tk if tk is not None else object):
                 return
             out_path = build_output_path(self.group_var.get(), self.name_var.get(), sess)
             if out_path is None:
-                messagebox.showerror("Nome inválido", "Informe um nome de locutor válido (letras/números).")
+                messagebox.showerror("Nome inválido", "Informe um nome de locutor válido.")
                 return
             if out_path.exists():
-                if not messagebox.askyesno("Sobrescrever?", f"O arquivo {out_path.name} já existe. Deseja sobrescrever?"):
+                if not messagebox.askyesno("Sobrescrever?", f"{out_path.name} já existe. Sobrescrever?"):
                     return
 
         try:
@@ -542,16 +608,14 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.prog["maximum"] = len(chunks)
         self.prog["value"] = 0
         self._set_busy(True)
-        self._set_banner(f"Conectando em {port}... prepare-se (1 s de silêncio no início)", bg=GB["yellow"], fg=GB["bg0_h"])
-        self.quality_var.set("Capturando áudio do ESP32-S3...")
-        self.quality_lbl.config(foreground=GB["fg4"])
+        self._set_status("CONECTANDO", f"Abrindo {port}... prepare-se (1 s de silêncio no início)", GB["yellow_hi"], GB["bg0_h"])
+        self.quality_var.set("")
 
-        thread = threading.Thread(
+        threading.Thread(
             target=self._record_worker,
             args=(port, self.baud_var.get(), dur, out_path, self.group_var.get(), overwrite),
             daemon=True,
-        )
-        thread.start()
+        ).start()
 
     def _record_worker(self, port, baud, dur, out_path, group_key, overwrite):
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -575,17 +639,9 @@ class ColetorApp(tk.Tk if tk is not None else object):
     def _on_progress(self, idx, total, sec):
         self.prog["value"] = idx - 1
         if idx == 1:
-            self._set_banner(
-                f"● GRAVANDO [{idx}/{total}] ({sec}s) — 1 s de silêncio e comece a ler o texto!",
-                bg=GB["red"],
-                fg=GB["fg0"],
-            )
+            self._set_status(f"● GRAVANDO {idx}/{total}", "1 segundo de silêncio e comece a ler o texto!", GB["red"], GB["fg0"])
         else:
-            self._set_banner(
-                f"● GRAVANDO [{idx}/{total}] ({sec}s) — CONTINUE LENDO NORMALMENTE",
-                bg=GB["red"],
-                fg=GB["fg0"],
-            )
+            self._set_status(f"● GRAVANDO {idx}/{total}", f"Continue lendo normalmente ({sec}s)...", GB["red"], GB["fg0"])
 
     def _on_record_done(self, out_path, stats, group_key, overwrite):
         self.prog["value"] = self.prog["maximum"]
@@ -595,26 +651,24 @@ class ColetorApp(tk.Tk if tk is not None else object):
         warns = []
         if group_key != "noise":
             if stats["windows"] < 5:
-                warns.append(f"poucas janelas ({stats['windows']}; ideal >= 5)")
+                warns.append(f"poucas janelas ({stats['windows']}; ideal ≥ 5)")
             if not stats["has_auto_noise"]:
-                warns.append("sem pausa silenciosa p/ auto-ruído")
+                warns.append("sem pausa p/ auto-ruído")
         if stats["peak"] >= 0.98:
-            warns.append("possível saturação/clipping")
+            warns.append("clipping")
 
-        noise_txt = "OK" if stats["has_auto_noise"] else "sem pausa"
-        base_msg = (
-            f"{stats['duration']:.1f}s  |  {stats['windows']} janelas válidas  |  "
-            f"pico={stats['peak']:.2f}  |  auto-ruído: {noise_txt}"
-        )
+        noise_txt = "auto-ruído OK" if stats["has_auto_noise"] else "sem pausa"
+        summary = f"{stats['duration']:.1f}s  ·  {stats['windows']} janelas válidas  ·  pico {stats['peak']:.2f}  ·  {noise_txt}"
         rel = out_path.relative_to(ROOT)
+
         if warns:
-            self._set_banner(f"⚠ Salvo com ressalvas: {rel}", bg=GB["yellow"], fg=GB["bg0_h"])
-            self.quality_var.set(f"⚠ {base_msg} — {', '.join(warns)}")
-            self.quality_lbl.config(foreground=GB["orange"])
+            self._set_status("⚠ REVISAR", f"Salvo em {rel} ({', '.join(warns)})", GB["orange"], GB["bg0_h"])
+            self.quality_var.set(f"⚠  {summary}")
+            self.quality_lbl.config(fg=GB["orange"])
         else:
-            self._set_banner(f"✓ Gravação OK: {rel}", bg=GB["green"], fg=GB["fg0"])
-            self.quality_var.set(f"✓ {base_msg}")
-            self.quality_lbl.config(foreground=GB["green_hi"])
+            self._set_status("✓ SALVO OK", str(rel), GB["green"], GB["fg0"])
+            self.quality_var.set(f"✓  {summary}")
+            self.quality_lbl.config(fg=GB["green_hi"])
 
         if not overwrite:
             self._auto_session()
@@ -624,9 +678,9 @@ class ColetorApp(tk.Tk if tk is not None else object):
 
     def _on_record_error(self, exc):
         self._set_busy(False)
-        self._set_banner("✖ Erro na gravação — veja os detalhes abaixo", bg=GB["red"], fg=GB["fg0"])
+        self._set_status("✖ ERRO", "Falha na comunicação com o ESP32-S3", GB["red"], GB["fg0"])
         self.quality_var.set(str(exc))
-        self.quality_lbl.config(foreground=GB["red_hi"])
+        self.quality_lbl.config(fg=GB["red_hi"])
         messagebox.showerror("Erro ao gravar", str(exc))
 
     def _play_last(self):
@@ -638,10 +692,10 @@ class ColetorApp(tk.Tk if tk is not None else object):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        counts = {"known": set(), "cal": set(), "test": set(), "noise": 0}
+        counts = {"known": set(), "cal": set(), "test": set()}
         known_sessions = {}
 
-        for key, label, folder in GROUPS:
+        for key, _label, folder in GROUPS:
             if not folder.exists():
                 continue
             for p in sorted(folder.glob("*.wav")):
@@ -650,30 +704,24 @@ class ColetorApp(tk.Tk if tk is not None else object):
                 tag = "ok"
                 try:
                     st = analyze_wav(p)
-                    dur_s = f"{st['duration']:.1f}s"
-                    win_s = str(st["windows"])
-                    ns_s = "OK" if st["has_auto_noise"] else "—"
+                    ns = "OK" if st["has_auto_noise"] else "—"
+                    info = f"{st['windows']} jan · {ns}"
                     if key != "noise" and (st["windows"] < 5 or not st["has_auto_noise"]):
                         tag = "warn"
                 except Exception:
-                    dur_s, win_s, ns_s, tag = "?", "?", "?", "warn"
-                self.tree.insert("", tk.END, values=(label, p.name, dur_s, win_s, ns_s), tags=(tag,))
+                    info, tag = "?", "warn"
+                self.tree.insert("", tk.END, values=(p.name, info), tags=(tag,))
                 m = re.match(r"^locutor_([a-zA-Z0-9]+)_s\d+\.wav$", p.name)
-                if key == "noise":
-                    counts["noise"] += 1
-                elif m:
+                if m and key in counts:
                     spk = m.group(1).lower()
                     counts[key].add(spk)
                     if key == "known":
                         known_sessions[spk] = known_sessions.get(spk, 0) + 1
 
         ready_known = sum(1 for n in known_sessions.values() if n >= 3)
-        self.summary_var.set(
-            f"Conhecidos (>=3 sessões): {ready_known}/{len(known_sessions)}   |   "
-            f"Impostores Cal: {len(counts['cal'])} (meta 2+)   |   "
-            f"Impostores Teste: {len(counts['test'])} (meta 3+)   |   "
-            f"Ruído: {counts['noise']}"
-        )
+        self.metric_vars["known"].set(f"{ready_known}/{len(known_sessions)}")
+        self.metric_vars["cal"].set(str(len(counts["cal"])))
+        self.metric_vars["test"].set(str(len(counts["test"])))
 
 
 def main():
