@@ -15,6 +15,7 @@ audio_exemplo/*.ogg
 audio_exemplo/*.mp3
 audio_exemplo/*.flac
 !audio_exemplo/.gitkeep
+dados/
 
 # OS / editores
 .DS_Store

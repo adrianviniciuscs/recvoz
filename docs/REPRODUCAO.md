@@ -25,10 +25,17 @@ separar treino, calibração e teste. Varie dia, posição e fala entre sessões
 
 ### Opção A (recomendada): direto do firmware `recvoz-esp`
 
-O firmware `recvoz-esp` já expõe o comando serial `grab [1..3]`, que transmite
-PCM cru em Base64. O utilitário `tools/grab_esp.py` encadeia blocos consecutivos
-na mesma conexão serial (sem reiniciar a placa nem trocar de firmware) e salva
-um único WAV PCM16 mono a 16 kHz:
+Para uma coleta guiada com interface gráfica (seleção de grupo, teleprompter,
+numeração automática `sN`, checagem de janelas VAD/auto-ruído e reprodução):
+
+```bash
+make collect
+# ou: .venv/bin/python tools/coletor.py
+```
+
+Via linha de comando, o firmware `recvoz-esp` expõe o comando serial
+`grab [1..3]` (PCM cru em Base64) e o utilitário `tools/grab_esp.py` encadeia
+blocos consecutivos na mesma conexão serial sem trocar de firmware:
 
 ```bash
 .venv/bin/python tools/grab_esp.py -d 18 \

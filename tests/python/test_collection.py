@@ -16,6 +16,10 @@ esp_spec = importlib.util.spec_from_file_location('grab_esp', ROOT / 'tools/grab
 esp_module = importlib.util.module_from_spec(esp_spec)
 esp_spec.loader.exec_module(esp_module)
 
+col_spec = importlib.util.spec_from_file_location('coletor', ROOT / 'tools/coletor.py')
+col_module = importlib.util.module_from_spec(col_spec)
+col_spec.loader.exec_module(col_module)
+
 
 class Stream(io.BytesIO):
     def read_until(self, delimiter):
@@ -79,3 +83,13 @@ class CollectionTests(unittest.TestCase):
                 self.assertEqual(wav.getnframes(), 320)
                 self.assertEqual(wav.getframerate(), 16000)
                 self.assertEqual(wav.readframes(320), pcm1 + pcm2)
+
+    def test_coletor_helpers(self):
+        self.assertEqual(col_module.sanitize_name('  João Silva! '), 'joaosilva')
+        self.assertEqual(len(col_module.sanitize_name('a' * 30)), 15)
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            self.assertEqual(col_module.next_session_number(folder, 'adrian'), 1)
+            (folder / 'locutor_adrian_s1.wav').write_bytes(b'')
+            (folder / 'locutor_adrian_s2.wav').write_bytes(b'')
+            self.assertEqual(col_module.next_session_number(folder, 'adrian'), 3)

@@ -1,7 +1,7 @@
 PYTHON ?= .venv/bin/python
 HOST_TESTS := knn gmm mfcc ns commands audio persistence
 
-.PHONY: test test-host test-python evaluate notebooks
+.PHONY: test test-host test-python evaluate notebooks collect
 
 test: test-host test-python
 
@@ -16,3 +16,6 @@ evaluate:
 
 notebooks:
 	$(PYTHON) -m jupyterlab notebooks
+
+collect:
+	$(PYTHON) tools/coletor.py
