@@ -17,6 +17,10 @@ continua disponível como entrada compatível para `pip install -r`.
 
 ## 2. Coletar
 
+Veja o [guia completo de coleta open-set](COLETA.md) para entender o papel de
+cada pasta (*Conhecidos*, *Impostores de Calibração*, *Impostores de Teste* e
+*Ruído*) e o passo a passo com o coletor gráfico (`make collect`).
+
 Salve cada sessão como `audio_exemplo/locutor_NOME_sN.wav`, preferencialmente
 PCM16 mono a 16 kHz, com o mesmo INMP441, distância e ganho da demonstração.
 Use nomes ASCII de até 15 caracteres. Não junte sessões no mesmo arquivo.

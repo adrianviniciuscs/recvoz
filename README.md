@@ -60,6 +60,7 @@ estado acontece na tarefa principal.
 ## Documentação
 
 - [Artigo técnico (LaTeX / PDF)](docs/artigo/recvoz_gmm_ubm.pdf) — modelagem GMM-UBM + CMN, supressão espectral e resultados
+- [Guia de coleta do dataset (Open-Set e `make collect`)](docs/COLETA.md)
 - [Reprodução: instalar, testar, coletar, avaliar, exportar e gravar](docs/REPRODUCAO.md)
 - [Arquitetura e responsabilidades](docs/ARQUITETURA.md)
 - [Protocolo de avaliação e resultados](docs/AVALIACAO.md)
