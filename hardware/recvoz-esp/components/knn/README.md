@@ -3,7 +3,7 @@
 O "cérebro" de Sistemas Inteligentes do projeto, isolado em componente
 próprio: **algoritmo puro** (sem flash, sem NVS, sem microfone). Quem guarda
 os vetores é o `speaker_db`; aqui só mora a decisão. Tanto que o mesmo
-`knn.c` compila no firmware **e** no host (`make -C tools/knn_hosttest run`).
+`knn.c` compila no firmware **e** no host (`make -C tests/host/knn run`).
 
 ## O algoritmo em 5 passos
 

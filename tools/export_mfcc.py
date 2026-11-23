@@ -1,72 +1,39 @@
 #!/usr/bin/env python3
-"""Exporta tabelas e vetores de teste do MFCC p/ o firmware (F1).
-
-Pipeline IDENTICA a eda_speaker_recognition.ipynb, rodada com o librosa
-deste venv (1.x — delta via Savitzky-Golay, STFT center+zero-pad, rfft sem
-escala, mel slaney, power_to_db ref=1.0/top_db=80, dct ortho):
-
-    int16 -> /32768 -> butter 80-8000 (filtfilt) -> STFT 1024/256 Hann
-    -> |.|^2 -> mel128 -> 10*log10 -> DCT13 -> deltas SG -> 39-dim
-
-Gera:
-  hardware/recvoz-esp/components/mfcc/mfcc_tables.h  (mel + SOS + zi + SG)
-  tools/mfcc_test/test_pcm.bin      (32000 int16 LE, 2 s de adrian_s1)
-  tools/mfcc_test/expected_bp.bin   (filtrado float32, 32000)
-  tools/mfcc_test/expected_mfcc.bin (39x126 float32 C-order)
-  tools/mfcc_test/expected_mean.bin (39 float32)
-  tools/mfcc_test/enroll_vectors.npz (p/ F2: mean-vecs 125-frame chunks + labels)
-
-Uso:  .venv/bin/python tools/export_mfcc.py
-"""
-import struct
+"""Exporta em staging após validar dados; publique com --output-root ."""
+import argparse
+import hashlib
+import json
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+import librosa
 import numpy as np
+from scipy import signal
+from sklearn.mixture import GaussianMixture
+from recvoz.features import (TARGET_SR, VOICE_LOW, VOICE_HIGH, N_FFT, HOP_LENGTH,
+                             WIN_SAMPLES, pipeline, load_audio, load_dataset)
 
-ROOT = Path(__file__).resolve().parent.parent
-MFCC_DIR = ROOT / "hardware/recvoz-esp/components/mfcc"
-DB_DIR = ROOT / "hardware/recvoz-esp/components/speaker_db"
-TEST_DIR = ROOT / "tools/mfcc_test"
 
-
-def C(v):
-    s = f"{v:.9g}"
-    if "." not in s and "e" not in s and "n" not in s:
+def C(value):
+    value = float(value)
+    if not np.isfinite(value):
+        raise ValueError("Coeficiente não finito")
+    s = f"{value:.9g}"
+    if "." not in s and "e" not in s:
         s += ".0"
     return s + "f"
 
-# Parâmetros do notebook (não mexer sem re-treinar)
-TARGET_SR = 16000
-VOICE_LOW, VOICE_HIGH = 80, 8000
-N_FFT, HOP_LENGTH = 1024, 256
-N_MFCC = 13
-WIN_SAMPLES = 32000  # 2 s
 
-import librosa
-
-assert librosa.__version__.startswith("1."), f"rode neste venv (librosa 1.x), achado {librosa.__version__}"
-from scipy import signal
-
-
-def pipeline(y):
-    """y: float64 mono 16 kHz. Retorna (mfcc39xT float64, y_filtrado)."""
-    nyq = TARGET_SR / 2.0
-    b, a = signal.butter(5, [VOICE_LOW / nyq, min(VOICE_HIGH / nyq, 0.99)], btype="bandpass")
-    yf = signal.filtfilt(b, a, y)
-    mfcc = librosa.feature.mfcc(y=yf, sr=TARGET_SR, n_mfcc=N_MFCC,
-                                n_fft=N_FFT, hop_length=HOP_LENGTH)
-    d1 = librosa.feature.delta(mfcc)
-    d2 = librosa.feature.delta(mfcc, order=2)
-    return np.vstack([mfcc, d1, d2]), yf
-
-
-def main():
-    import soundfile as sf
-
-    TEST_DIR.mkdir(parents=True, exist_ok=True)
-    MFCC_DIR.mkdir(parents=True, exist_ok=True)
-
+def generate(staging, pcm, dataset):
+    mfcc_dir = staging / "hardware/recvoz-esp/components/mfcc"
+    db_dir = staging / "hardware/recvoz-esp/components/speaker_db"
+    test_dir = staging / "tests/fixtures"
+    for d in (mfcc_dir, db_dir, test_dir):
+        d.mkdir(parents=True)
     # --- 1. tabelas fixas ---
     nyq = TARGET_SR / 2.0
     sos = signal.butter(5, [VOICE_LOW / nyq, min(VOICE_HIGH / nyq, 0.99)],
@@ -98,7 +65,7 @@ def main():
     dct = raw / np.sqrt(2 * 128)
     dct[0] /= np.sqrt(2)
 
-    with open(MFCC_DIR / "mfcc_tables.h", "w") as f:
+    with open(mfcc_dir / "mfcc_tables.h", "w") as f:
         f.write("// GERADO por tools/export_mfcc.py — não editar à mão.\n")
         f.write(f"// librosa {librosa.__version__} | sr=16000 bandpass 80-7920 SOS(5) mel128 slaney\n#pragma once\n")
         f.write("#include <stdint.h>\n\n#define MFCC_N_SOS 5\n");
@@ -128,87 +95,112 @@ def main():
         f.write("};\n")
     print("wrote mfcc_tables.h")
 
-    # --- 2. vetores de teste: 2 s de adrian_s1, caminho int16 igual ao device ---
-    pcm, sr = sf.read(ROOT / "audio_exemplo/locutor_adrian_s1.wav", dtype="int16")
-    assert sr == TARGET_SR, sr
-    pcm = np.asarray(pcm[:WIN_SAMPLES], dtype=np.int16)
-    assert len(pcm) == WIN_SAMPLES
-    y = pcm.astype(np.float64) / 32768.0
-    m, yf = pipeline(y)
-    print("expected mfcc shape:", m.shape, "dtype:", m.dtype)
-    assert m.shape[1] == 1 + WIN_SAMPLES // HOP_LENGTH, m.shape  # center+zero-pad: 126
+    m, yf = pipeline(pcm.astype(np.float64) / 32768)
+    pcm.astype("<i2").tofile(test_dir / "test_pcm.bin")
+    for name, data in [("expected_bp", yf), ("expected_mfcc", m), ("expected_mean", m.mean(axis=1))]:
+        data.astype("<f4").tofile(test_dir / (name + ".bin"))
+    p37 = np.abs(librosa.stft(yf, n_fft=N_FFT, hop_length=HOP_LENGTH,
+                               center=True, pad_mode="constant")[:, 37]) ** 2
+    mel37 = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=128) @ p37
+    for name, data in [("expected_pow37", p37), ("expected_mel37", mel37),
+                       ("expected_db37", librosa.power_to_db(mel37))]:
+        data.astype("<f4").tofile(test_dir / (name + ".bin"))
+    names = sorted(set(dataset.labels))
+    labels = [names.index(n) for n in dataset.labels]
+    with (db_dir / "enroll_default.h").open('w') as f:
+        f.write('// GERADO por tools/export_mfcc.py; requer recalibrar tau.\n#pragma once\n#include <stdint.h>\n')
+        f.write(f'#define ENROLL_DEFAULT_NSPK {len(names)}\n#define ENROLL_DEFAULT_NVEC {len(labels)}\n')
+        f.write(f'static const char *ENROLL_DEFAULT_NAMES[{len(names)}] = {{' + ', '.join(json.dumps(n) for n in names) + '};\n')
+        f.write(f'static const float ENROLL_DEFAULT_VECS[{len(labels)}][39] = {{\n')
+        for row in dataset.vectors:
+            f.write('    {' + ', '.join(C(v) for v in row) + '},\n')
+        f.write('};\n')
+        f.write(f'static const uint8_t ENROLL_DEFAULT_LABELS[{len(labels)}] = {{' + ', '.join(map(str, labels)) + '};\n')
+    np.savez(test_dir / 'enroll_vectors.npz', vecs=dataset.vectors, labels=dataset.labels,
+             sessions=dataset.sessions, sources=dataset.sources)
 
-    pcm.tofile(TEST_DIR / "test_pcm.bin")
-    yf.astype(np.float32).tofile(TEST_DIR / "expected_bp.bin")
-    m.astype(np.float32).tofile(TEST_DIR / "expected_mfcc.bin")
-    m.mean(axis=1).astype(np.float32).tofile(TEST_DIR / "expected_mean.bin")
+    # --- 3. GMM-UBM + CMN (8 Gaussianas diagonais em 24 dims: c1..c12 + Δc1..Δc12) ---
+    idx24 = np.r_[1:13, 14:26]
+    def cmn24(m39):
+        X = m39[idx24, :].T.astype(np.float64)
+        return X - X.mean(axis=0, keepdims=True)
 
-    # estágios do frame 37 p/ debug estágio-a-estágio no host test
-    T = 37
-    D = librosa.stft(yf, n_fft=N_FFT, hop_length=HOP_LENGTH, window="hann",
-                     center=True, pad_mode="constant")
-    P37 = (np.abs(D[:, T]) ** 2).astype(np.float64)
-    P37.astype(np.float32).tofile(TEST_DIR / "expected_pow37.bin")
-    melmat = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=128,
-                                 fmin=0.0, fmax=8000.0, htk=False, norm="slaney")
-    M37 = (melmat @ P37).astype(np.float64)
-    M37.astype(np.float32).tofile(TEST_DIR / "expected_mel37.bin")
-    librosa.power_to_db(M37).astype(np.float32).tofile(TEST_DIR / "expected_db37.bin")
-    print("wrote tools/mfcc_test/*.bin")
+    X_all = np.vstack([cmn24(m) for m in dataset.frames])
+    ubm = GaussianMixture(n_components=8, covariance_type='diag', random_state=42, max_iter=100).fit(X_all)
+    ubm_logw = np.log(ubm.weights_ + 1e-12)
+    ubm_invvar = 1.0 / np.maximum(ubm.covariances_, 1e-6)
+    ubm_logconst = -0.5 * np.sum(np.log(2.0 * np.pi * np.maximum(ubm.covariances_, 1e-6)), axis=1)
 
-    # --- 3. enroll vectors p/ F2 (chunks de 125 frames como no notebook) ---
-    import re
-    from pathlib import Path as P
-    LOCUTOR_RE = re.compile(r"^locutor_(?P<nome>.+?)_(?P<sessao>s\d+)$")
-    vecs, labels = [], []
-    by_sp = {}
-    for wav in sorted(P(ROOT / "audio_exemplo").glob("locutor_*.wav")):
-        mt = LOCUTOR_RE.match(wav.stem)
-        if not mt:
-            continue
-        raw, srr = sf.read(str(wav), dtype="float32")
-        if srr != TARGET_SR:
-            raw = librosa.resample(raw, orig_sr=srr, target_sr=TARGET_SR)
-        # Só blocos de 100 ms acima do VAD (== capture_voiced do firmware):
-        # a base precisa da mesma distribuição das janelas ao vivo.
-        blk = len(raw) // 1600 * 1600
-        fr = raw[:blk].reshape(-1, 1600)
-        hot = fr[np.sqrt((fr ** 2).mean(axis=1)) * 32768 > 300]
-        kept = hot.reshape(-1) if len(hot) else np.array([], dtype=np.float32)
-        print(f"{wav.name}: {len(raw)/TARGET_SR:.1f}s -> {len(kept)/TARGET_SR:.1f}s com voz")
-        if len(kept) >= 32000:
-            by_sp.setdefault(mt.group("nome"), []).append(kept.astype(np.float64))
-    for sp in sorted(by_sp):
-        mm, _ = pipeline(np.concatenate(by_sp[sp]))  # concatena por locutor, igual ao notebook
-        fseg = int(round(2.0 * TARGET_SR / HOP_LENGTH))  # 125, igual ao notebook
-        for i in range(0, mm.shape[1] - fseg + 1, fseg):
-            vecs.append(mm[:, i:i + fseg].mean(axis=1))
-            labels.append(sp)
-    vecs = np.array(vecs, dtype=np.float32)
-    print("enroll:", vecs.shape, sorted(set(labels)))
-    np.savez(TEST_DIR / "enroll_vectors.npz",
-             vecs=vecs, labels=np.array(labels),
-             meta=np.array(["librosa " + librosa.__version__ + " | chunks 125 frames | mean float32"]))
-    print("wrote enroll_vectors.npz")
+    r_map = 8.0
+    spk_means = []
+    for spk_name in names:
+        Xs = np.vstack([cmn24(m) for m, lbl in zip(dataset.frames, dataset.labels) if lbl == spk_name])
+        resp = ubm.predict_proba(Xs)
+        nk = resp.sum(axis=0) + 1e-12
+        ek = (resp.T @ Xs) / nk[:, None]
+        alpha = nk / (nk + r_map)
+        spk_means.append(alpha[:, None] * ek + (1.0 - alpha[:, None]) * ubm.means_)
 
-    # --- 4. defaults de fábrica p/ o firmware (F2): ADRIAN + PEDRO ---
-    DB_DIR.mkdir(parents=True, exist_ok=True)
-    order = np.argsort(labels, kind="stable")
-    with open(DB_DIR / "enroll_default.h", "w") as f:
-        f.write("// GERADO por tools/export_mfcc.py — não editar à mão.\n#pragma once\n\n")
-        f.write(f"#define ENROLL_DEFAULT_NSPK 2\n#define ENROLL_DEFAULT_NVEC {len(vecs)}\n")
-        names = [str(labels[i]) for i in order]
-        f.write("static const char *ENROLL_DEFAULT_NAMES[2] = {%s};\n"
-                % ", ".join(f'"{n.upper()}"' for n in sorted(set(names))))
-        f.write("static const float ENROLL_DEFAULT_VECS[%d][39] = {\n" % len(vecs))
-        for i in order:
-            f.write("    {%s},\n" % ", ".join(C(v) for v in vecs[i]))
-        f.write("};\nstatic const uint8_t ENROLL_DEFAULT_LABELS[%d] = {\n    " % len(vecs))
-        name_to_idx = {n: k for k, n in enumerate(sorted(set(n.upper() for n in names)))}
-        f.write(", ".join(str(name_to_idx[n.upper()]) for n in (str(labels[i]) for i in order)))
-        f.write("\n};\n")
-    print("wrote enroll_default.h")
+    with (db_dir / 'gmm_default.h').open('w') as f:
+        f.write('// GERADO por tools/export_mfcc.py — GMM-UBM (M=8, D=24, CMN).\n#pragma once\n')
+        f.write('#define GMM_M 8\n#define GMM_D 24\n#define GMM_R 8.0f\n')
+        f.write(f'#define GMM_NSPK {len(names)}\n')
+        f.write('static const float GMM_UBM_LOGW[GMM_M] = {%s};\n' % ', '.join(C(v) for v in ubm_logw))
+        f.write('static const float GMM_UBM_LOGCONST[GMM_M] = {%s};\n' % ', '.join(C(v) for v in ubm_logconst))
+        f.write('static const float GMM_UBM_MEANS[GMM_M][GMM_D] = {\n')
+        for row in ubm.means_:
+            f.write('    {' + ', '.join(C(v) for v in row) + '},\n')
+        f.write('};\nstatic const float GMM_UBM_INVVAR[GMM_M][GMM_D] = {\n')
+        for row in ubm_invvar:
+            f.write('    {' + ', '.join(C(v) for v in row) + '},\n')
+        f.write('};\nstatic const float GMM_SPK_MEANS[GMM_NSPK][GMM_M][GMM_D] = {\n')
+        for mat in spk_means:
+            f.write('    {\n')
+            for row in mat:
+                f.write('        {' + ', '.join(C(v) for v in row) + '},\n')
+            f.write('    },\n')
+        f.write('};\n')
+    print("wrote gmm_default.h")
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--audio-dir', type=Path, required=True)
+    parser.add_argument('--fixture-wav', type=Path, required=True)
+    parser.add_argument('--output-root', type=Path, required=True)
+    parser.add_argument('--vad', type=int, default=300)
+    args = parser.parse_args()
+    try:
+        if librosa.__version__ != '1.0.0':
+            raise ValueError('Export exige librosa==1.0.0')
+        pcm = load_audio(args.fixture_wav)[:WIN_SAMPLES]
+        if len(pcm) != WIN_SAMPLES:
+            raise ValueError('Fixture exige pelo menos 2 s de áudio')
+        dataset = load_dataset(args.audio_dir, args.vad)
+        if not 1 <= len(set(dataset.labels)) <= 8:
+            raise ValueError('Firmware suporta 1..8 locutores de fábrica (máscara uint8)')
+        if not np.isfinite(dataset.vectors).all():
+            raise ValueError('Features não finitas')
+        with tempfile.TemporaryDirectory(prefix='recvoz-export-') as tmp:
+            staging = Path(tmp)
+            generate(staging, pcm, dataset)
+            manifest = {'pipeline': 'pcm-window-32000-v1', 'librosa': librosa.__version__,
+                        'vad': args.vad, 'noise': 'auto-session-profile', 'skip_c0': True,
+                        'input_sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                         for p in sorted(args.audio_dir.glob('locutor_*.wav'))},
+                        'fixture_sha256': hashlib.sha256(args.fixture_wav.read_bytes()).hexdigest()}
+            (staging / 'tests/fixtures/manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+            # Todos os dados foram validados e gerados antes de publicar.
+            for source in sorted(staging.rglob('*')):
+                if source.is_file():
+                    dest = args.output_root / source.relative_to(staging)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, dest.with_suffix(dest.suffix + '.tmp'))
+                    dest.with_suffix(dest.suffix + '.tmp').replace(dest)
+        print(f'Exportados {len(dataset.vectors)} vetores em {args.output_root}. Recalibre tau antes de flashar.')
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+
+
+if __name__ == '__main__':
+    main()

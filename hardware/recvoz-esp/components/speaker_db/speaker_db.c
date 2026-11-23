@@ -7,7 +7,9 @@
 #include "nvs.h"
 #include "speaker_db.h"
 #include "knn.h"
+#include "gmm_ubm.h"
 #include "enroll_default.h"
+#include "gmm_default.h"
 
 #define SPK_K 3 // k do notebook (sklearn n_neighbors=3)
 
@@ -18,6 +20,8 @@ typedef struct {
     char name[SPK_NAME_LEN];
     uint8_t nvec;
     float vecs[SPK_EXTRA_VECS][SPK_DIM];
+    float gmm_means[GMM_UBM_M * GMM_UBM_D];
+    uint8_t has_gmm;
     uint8_t used;
 } extra_t;
 
@@ -52,17 +56,17 @@ static esp_err_t load_all(void)
     // e o READONLY falharia com NOT_FOUND, matando o app no ESP_ERROR_CHECK.
     ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READWRITE, &h), TAG, "nvs open");
     uint32_t bits = 0;
-    size_t len = sizeof(bits);
     uint8_t tauv = 0;
     nvs_get_u8(h, "tauver", &tauv);
-    if (tauv != 2) {
-        // TAU_DEFAULT mudou (-> 0.017, base só-com-voz): ignora valor
+    if (tauv != 3) {
+        // TAU_DEFAULT mudou (-> 0.42, GMM-UBM + CMN): ignora valor
         // antigo, grava o novo + carimba versão.
         s_tau = SPK_TAU_DEFAULT;
         memcpy(&bits, &s_tau, 4);
-        nvs_set_u32(h, "tau", bits);
-        nvs_set_u8(h, "tauver", 2);
-        nvs_commit(h);
+        esp_err_t r = nvs_set_u32(h, "tau", bits);
+        if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 3);
+        if (r == ESP_OK) r = nvs_commit(h);
+        if (r != ESP_OK) { nvs_close(h); return r; }
     } else if (nvs_get_u32(h, "tau", &bits) == ESP_OK) {
         float t;
         memcpy(&t, &bits, 4);
@@ -82,6 +86,7 @@ static esp_err_t load_all(void)
         size_t bl = sizeof(blob);
         if (nvs_get_str(h, kname, s_extra[i].name, &nl) != ESP_OK) continue;
         if (nvs_get_blob(h, kvec, blob, &bl) != ESP_OK) { s_extra[i].name[0] = 0; continue; }
+        if (bl < 1) continue;
         uint8_t n = blob[0];
         if (n == 0 || n > SPK_EXTRA_VECS || bl < 1 + n * SPK_DIM * sizeof(float)) {
             s_extra[i].name[0] = 0;
@@ -89,8 +94,19 @@ static esp_err_t load_all(void)
         }
         s_extra[i].nvec = n;
         memcpy(s_extra[i].vecs, blob + 1, n * SPK_DIM * sizeof(float));
+        char kgmm[8];
+        snprintf(kgmm, sizeof kgmm, "x%dg", i);
+        size_t gl = sizeof(s_extra[i].gmm_means);
+        if (nvs_get_blob(h, kgmm, s_extra[i].gmm_means, &gl) == ESP_OK && gl == sizeof(s_extra[i].gmm_means)) {
+            s_extra[i].has_gmm = 1;
+        } else {
+            gmm_adapt_ctx_t ctx;
+            gmm_adapt_init(&ctx);
+            gmm_adapt_finish(&ctx, s_extra[i].gmm_means);
+            s_extra[i].has_gmm = 0;
+        }
         s_extra[i].used = 1;
-        ESP_LOGI(TAG, "extra[%d] %s (%d vetores)", i, s_extra[i].name, n);
+        ESP_LOGI(TAG, "extra[%d] %s (%d vetores, gmm=%d)", i, s_extra[i].name, n, s_extra[i].has_gmm);
     }
     nvs_close(h);
     return ESP_OK;
@@ -201,11 +217,17 @@ static int gather_flat(float **out_vecs, int **out_labels)
     return n;
 }
 
-esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec)
+esp_err_t speaker_db_enroll_gmm(const char *name, const float *vecs, int nvec, const float *gmm_means_Mx24)
 {
     ESP_RETURN_ON_FALSE(s_ok && name && name[0] && vecs, ESP_ERR_INVALID_ARG, TAG, "arg");
     ESP_RETURN_ON_FALSE(nvec >= 1 && nvec <= SPK_EXTRA_VECS, ESP_ERR_INVALID_ARG, TAG, "nvec=%d", nvec);
-    char clean[SPK_NAME_LEN];
+    for (int i = 0; i < nvec * SPK_DIM; i++)
+        ESP_RETURN_ON_FALSE(isfinite(vecs[i]), ESP_ERR_INVALID_ARG, TAG, "non-finite vector");
+    if (gmm_means_Mx24) {
+        for (int i = 0; i < GMM_UBM_M * GMM_UBM_D; i++)
+            ESP_RETURN_ON_FALSE(isfinite(gmm_means_Mx24[i]), ESP_ERR_INVALID_ARG, TAG, "non-finite gmm");
+    }
+    char clean[SPK_NAME_LEN] = {0};
     snprintf(clean, sizeof clean, "%s", name);
     for (char *p = clean; *p; p++) {
         if (*p >= 'a' && *p <= 'z') *p -= 32;
@@ -219,35 +241,48 @@ esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec)
             if (!s_extra[i].used) { slot = i; break; }
     ESP_RETURN_ON_FALSE(slot >= 0, ESP_ERR_NO_MEM, TAG, "sem slot extra livre");
 
-    memcpy(s_extra[slot].name, clean, SPK_NAME_LEN);
-    s_extra[slot].nvec = nvec;
-    memcpy(s_extra[slot].vecs, vecs, nvec * SPK_DIM * sizeof(float));
-    s_extra[slot].used = 1;
-
-    // Nome de fábrica? Os vetores ao vivo (mesmo mic/sala) passam a valer;
-    // os de fábrica desse locutor saem da votação (bit ovr persistido).
+    uint8_t next_ovr = s_ovr;
     for (int s = 0; s < ENROLL_DEFAULT_NSPK; s++)
         if (strcmp(clean, ENROLL_DEFAULT_NAMES[s]) == 0) {
-            s_ovr |= (1u << s);
+            next_ovr |= (1u << s);
             ESP_LOGI(TAG, "%s: fábrica sobrescrita por enroll ao vivo", clean);
         }
 
     nvs_handle_t h;
     ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READWRITE, &h), TAG, "nvs open");
-    char kname[8], kvec[8];
+    char kname[8], kvec[8], kgmm[8];
     snprintf(kname, sizeof kname, "x%dn", slot);
     snprintf(kvec, sizeof kvec, "x%dv", slot);
+    snprintf(kgmm, sizeof kgmm, "x%dg", slot);
     uint8_t blob[1 + SPK_EXTRA_VECS * SPK_DIM * sizeof(float)];
     blob[0] = nvec;
     memcpy(blob + 1, vecs, nvec * SPK_DIM * sizeof(float));
     esp_err_t r = nvs_set_str(h, kname, clean);
     if (r == ESP_OK) r = nvs_set_blob(h, kvec, blob, 1 + nvec * SPK_DIM * sizeof(float));
-    if (r == ESP_OK) r = nvs_set_u8(h, "ovr", s_ovr);
+    if (r == ESP_OK && gmm_means_Mx24)
+        r = nvs_set_blob(h, kgmm, gmm_means_Mx24, GMM_UBM_M * GMM_UBM_D * sizeof(float));
+    if (r == ESP_OK) r = nvs_set_u8(h, "ovr", next_ovr);
     if (r == ESP_OK) r = nvs_commit(h);
     nvs_close(h);
     ESP_RETURN_ON_ERROR(r, TAG, "nvs write");
-    ESP_LOGI(TAG, "cadastrado %s no slot %d (%d vetores)", clean, slot, nvec);
+    memcpy(s_extra[slot].name, clean, SPK_NAME_LEN);
+    s_extra[slot].nvec = nvec;
+    memcpy(s_extra[slot].vecs, vecs, nvec * SPK_DIM * sizeof(float));
+    if (gmm_means_Mx24) {
+        memcpy(s_extra[slot].gmm_means, gmm_means_Mx24, sizeof(s_extra[slot].gmm_means));
+        s_extra[slot].has_gmm = 1;
+    } else {
+        s_extra[slot].has_gmm = 0;
+    }
+    s_extra[slot].used = 1;
+    s_ovr = next_ovr;
+    ESP_LOGI(TAG, "cadastrado %s no slot %d (%d vetores, gmm=%d)", clean, slot, nvec, s_extra[slot].has_gmm);
     return ESP_OK;
+}
+
+esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec)
+{
+    return speaker_db_enroll_gmm(name, vecs, nvec, NULL);
 }
 
 esp_err_t speaker_db_reset(void)
@@ -255,19 +290,25 @@ esp_err_t speaker_db_reset(void)
     ESP_RETURN_ON_FALSE(s_ok, ESP_ERR_INVALID_STATE, TAG, "init primeiro");
     nvs_handle_t h;
     ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READWRITE, &h), TAG, "nvs open");
-    for (int i = 0; i < SPK_EXTRA_MAX; i++) {
-        char kname[8], kvec[8];
-        snprintf(kname, sizeof kname, "x%dn", i);
-        snprintf(kvec, sizeof kvec, "x%dv", i);
-        nvs_erase_key(h, kname);
-        nvs_erase_key(h, kvec);
+    esp_err_t r = ESP_OK;
+    for (int i = 0; i < SPK_EXTRA_MAX && r == ESP_OK; i++) {
+        char key[8];
+        const char suf[3] = {'n', 'v', 'g'};
+        for (int field = 0; field < 3 && r == ESP_OK; field++) {
+            snprintf(key, sizeof key, "x%d%c", i, suf[field]);
+            r = nvs_erase_key(h, key);
+            if (r == ESP_ERR_NVS_NOT_FOUND) r = ESP_OK;
+        }
     }
-    nvs_erase_key(h, "ovr");
-    esp_err_t r = nvs_commit(h);
+    if (r == ESP_OK) {
+        r = nvs_erase_key(h, "ovr");
+        if (r == ESP_ERR_NVS_NOT_FOUND) r = ESP_OK;
+    }
+    if (r == ESP_OK) r = nvs_commit(h);
     nvs_close(h);
+    ESP_RETURN_ON_ERROR(r, TAG, "nvs commit");
     memset(s_extra, 0, sizeof(s_extra));
     s_ovr = 0;
-    ESP_RETURN_ON_ERROR(r, TAG, "nvs commit");
     return ESP_OK;
 }
 
@@ -281,7 +322,7 @@ esp_err_t speaker_db_set_tau(float tau)
     uint32_t bits;
     memcpy(&bits, &tau, 4);
     esp_err_t r = nvs_set_u32(h, "tau", bits);
-    if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 2);
+    if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 3);
     if (r == ESP_OK) r = nvs_commit(h);
     nvs_close(h);
     ESP_RETURN_ON_ERROR(r, TAG, "nvs write");
@@ -317,4 +358,67 @@ int speaker_db_classify(const float *mean39, float *out_dist)
     int w = knn_classify(mean39, v, l, n, SPK_DIM, 1, SPK_K, s_tau, out_dist);
     free(v); free(l);
     return w;
+}
+
+static float llr_to_dist(float llr)
+{
+    float d = 0.5f * (1.0f - llr);
+    if (d < 0.0f) d = 0.0f;
+    if (d > 1.0f) d = 1.0f;
+    return d;
+}
+
+float speaker_db_llr_to(int idx, const float *m39xT, int n_frames)
+{
+    if (!s_ok || !m39xT || n_frames <= 0) return -10.0f;
+    int fs, fe;
+    if (merged_resolve(idx, &fs, &fe) != 0) return -10.0f;
+    if (fs >= 0) return gmm_score_llr(m39xT, n_frames, &GMM_SPK_MEANS[fs][0][0]);
+    if (s_extra[fe].has_gmm) return gmm_score_llr(m39xT, n_frames, s_extra[fe].gmm_means);
+    return -10.0f;
+}
+
+int speaker_db_classify_gmm(const float *m39xT, int n_frames, spk_result_t *out,
+                            float *out_llr1, float *out_llr2)
+{
+    spk_result_t r = {-1, 1.0f, -1, 1.0f, -1};
+    if (out) *out = r;
+    if (out_llr1) *out_llr1 = -10.0f;
+    if (out_llr2) *out_llr2 = -10.0f;
+    if (!s_ok || !m39xT || n_frames <= 0) return -1;
+
+    float *cmn = (float *)malloc((size_t)n_frames * GMM_UBM_D * sizeof(float));
+    if (!cmn) return -1;
+    gmm_cmn24_window(m39xT, n_frames, cmn);
+    float ubm_ll = gmm_logpdf_cmn(cmn, n_frames, NULL);
+
+    int nspk = speaker_db_count();
+    float best1 = -1e30f, best2 = -1e30f;
+    int i1 = -1, i2 = -1;
+    for (int idx = 0; idx < nspk; idx++) {
+        int fs, fe;
+        if (merged_resolve(idx, &fs, &fe) != 0) continue;
+        const float *means = NULL;
+        if (fs >= 0) means = &GMM_SPK_MEANS[fs][0][0];
+        else if (s_extra[fe].has_gmm) means = s_extra[fe].gmm_means;
+        if (!means) continue;
+        float llr = gmm_score_llr_cmn(cmn, n_frames, means, ubm_ll);
+        if (llr > best1) {
+            best2 = best1; i2 = i1;
+            best1 = llr; i1 = idx;
+        } else if (llr > best2) {
+            best2 = llr; i2 = idx;
+        }
+    }
+    free(cmn);
+    if (i1 < 0) return -1;
+    r.dmin = llr_to_dist(best1);
+    r.drunner = (i2 >= 0) ? llr_to_dist(best2) : 1.0f;
+    r.nearest = i1;
+    r.runner = i2;
+    r.winner = (r.dmin > s_tau) ? -1 : i1;
+    if (out) *out = r;
+    if (out_llr1) *out_llr1 = best1;
+    if (out_llr2) *out_llr2 = best2;
+    return r.winner;
 }

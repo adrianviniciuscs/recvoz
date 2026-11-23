@@ -27,6 +27,3 @@ ESP_ERROR_CHECK(audio_in_init(&acfg));
 static int16_t janela[AUDIO_IN_WINDOW_SAMPLES]; // 2 s = 64 KB (estático!)
 ESP_ERROR_CHECK(audio_in_read(janela, AUDIO_IN_WINDOW_SAMPLES));
 ```
-
-Origem: portado de `/home/adrian/projetos/inmp441_mic/main/main.c`.
-P/ gravar WAV no host p/ debug, usar aquele projeto (`tools/grab_raw.py`).

@@ -62,7 +62,7 @@ recvoz> diag         # no fim mostra a linha `ns:` junto das distâncias
 | Voz abafada / conhecido vira desconhecido com `ns on` | perfil contaminado com fala: `nscal` em silêncio real; se persistir, `ns alpha 1.0` (menos agressivo) ou `ns off` |
 | Chiado metálico ("ruído musical") | `ns floor 0.08` (piso mais alto) |
 
-`ns off` volta ao pipeline bit-igual ao notebook (paridade total).
+`ns off` volta ao pipeline comparável à referência Python dentro das tolerâncias dos testes.
 
 ## 3. Calibrar o τ (desconhecido)
 
@@ -133,3 +133,27 @@ Fale a ~15 cm do mic, ambiente o mais quieto possível.
 
 Tudo pelo serial: `enroll VISITANTE` → fala 15 s → `list` confere →
 fala de novo. O botão é só um atalho.
+
+
+## Console: execução e limites
+
+O console encaminha pedidos à tarefa principal e aguarda a resposta. Durante
+captura, matrícula ou exibição, o comando só executa quando a operação termina.
+`diag` e `nscal` têm acesso exclusivo ao áudio. Pressionar e soltar o botão
+inicia matrícula; pressioná-lo durante a matrícula cancela.
+
+| Comando | Valores aceitos |
+|---|---|
+| `vad N` | inteiro de 1 a 32767 (RMS PCM16) |
+| `hold N` | inteiro de 0 a 60000 ms |
+| `tau X` | número finito estritamente entre 0 e 1 |
+| `ns alpha X` | número em (0, 4] |
+| `ns floor X` | número em [0, 0.5] |
+| `ns beta X` | número em (0, 1] |
+| `ns auto on/off` | somente `on` ou `off` |
+| `enroll NOME` | até 15 caracteres; letras convertidas em maiúsculas |
+
+Argumentos inválidos são rejeitados sem modificar o estado. Para comparação
+com a avaliação offline padrão, execute `ns off`. Um perfil fixo exige
+`ns auto off`, `ns on` e `nscal`; a adaptação automática não é reproduzida no
+protocolo offline. A calibração do limiar deve usar dados separados do teste.

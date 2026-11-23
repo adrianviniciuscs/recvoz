@@ -2,6 +2,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/** @brief Ponteiro interno p/ o perfil de ruído (513 potências) ou NULL se não calibrado. */
+const float *ns_get_profile(void);
+
+/** @brief Registra a âncora MFCC do ruído ambiente e o RMS na banda de voz. */
+void ns_set_noise_anchor(const float *vec39, int rms16);
+
+/** @brief Âncora MFCC 39-dim do ruído calibrado (ou NULL se não calibrado). */
+const float *ns_get_noise_anchor(void);
+
+/** @brief RMS int16 na banda de voz do silêncio calibrado (0 se não calibrado). */
+int ns_get_noise_rms(void);
+
+/** @brief Distância cosseno (sem c0) entre mean39 e a âncora de ruído (1.0 se indisponível). */
+float ns_noise_dist(const float *mean39);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,7 +49,7 @@ extern "C" {
  */
 #define NS_BINS 513              ///< bins de potência (rfft 1024)
 #define NS_CAL_SAMPLES 8192      ///< lote de calibração: 0.512 s @16k (múltiplo de 256)
-#define NS_ALPHA_DEFAULT 1.2f    ///< oversubtração inicial
+#define NS_ALPHA_DEFAULT 0.8f    ///< oversubtração moderada (preserva formantes)
 #define NS_FLOOR_DEFAULT 0.05f   ///< piso proporcional (−13 dB)
 #define NS_BETA_DEFAULT 0.3f     ///< EMA entre calibrações
 
@@ -89,6 +104,21 @@ void ns_apply(float *pow513);
  * Útil p/ `diag` e p/ validar calibração em sala.
  */
 float ns_snr_db(const float *pow513);
+
+/** @brief Ponteiro interno p/ o perfil de ruído (513 potências) ou NULL se não calibrado. */
+const float *ns_get_profile(void);
+
+/** @brief Registra a âncora MFCC do ruído ambiente e o RMS na banda de voz. */
+void ns_set_noise_anchor(const float *vec39, int rms16);
+
+/** @brief Âncora MFCC 39-dim do ruído calibrado (ou NULL se não calibrado). */
+const float *ns_get_noise_anchor(void);
+
+/** @brief RMS int16 na banda de voz do silêncio calibrado (0 se não calibrado). */
+int ns_get_noise_rms(void);
+
+/** @brief Distância cosseno (sem c0) entre mean39 e a âncora de ruído (1.0 se indisponível). */
+float ns_noise_dist(const float *mean39);
 
 #ifdef __cplusplus
 }

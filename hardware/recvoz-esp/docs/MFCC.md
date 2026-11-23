@@ -139,9 +139,8 @@ como o log é absoluto, qualquer ganho global desloca **só o c0**
 
 ## 7. Deltas Savitzky-Golay (largura 9)
 
-> ⚠️ Armadilha de versão: no librosa 0.10 o `delta` era regressão linear;
-> no **1.x é `savgol_filter(data, 9, deriv=order)`**. O notebook e o
-> firmware usam 1.x.
+> A referência está fixada em librosa 1.0.0 e usa Savitzky-Golay de largura 9.
+> Mudanças de versão devem passar pelo teste de paridade antes de atualizar as tabelas.
 
 Para largura 9 (`half = 4`), a derivada do ajuste polinomial é
 **constante na janela** (reta → derivada 1ª constante; parábola →
@@ -160,38 +159,30 @@ $$\Delta^1[t] = \sum_{i=-4}^{4} \frac{i}{60}\cdot C[t+i], \qquad \Delta^2[t] = \
 
 $$v[d] = \frac{1}{126}\sum_t M[d,t], \quad d = 0..38, \qquad \mathrm{dist}(a,b) = 1 - \frac{a\cdot b}{|a||b|} \quad \text{(cosseno, igual ao sklearn)}$$
 
-k-NN `k=3, metric="cosine", weights="distance"` vive em `speaker_db`.
+k-NN `k=3`, cosseno sem c0 e voto ponderado vive em `knn`; `speaker_db` delega a decisão.
 
-## 9. Paridade medida (gate da F1)
+## 9. Paridade numérica
 
-`make -C tools/mfcc_hosttest run` — 2 s de voz do fixture `test_pcm.bin` (caminho int16
-idêntico ao device):
+Na raiz: `make -C tests/host/mfcc run`. A referência em
+`src/recvoz/features.py` usa SOS e piso de log por frame, como o firmware.
+No fixture atual: erro máximo MFCC ≈ 0,0159, vetor médio ≈ 0,000465 e
+ distância cosseno reportada 0 na precisão float32. Não há igualdade bit a bit.
 
-| Estágio | Erro abs máx | Veredito |
-|---|---|---|
-| passa-banda | 1.6e-06 | cravado |
-| potência (frame 37) | 9.8e-04 (pico 20.5) | cravado |
-| mel | 5e-05 | cravado |
-| vetor médio 39 | 0.05 | ok |
-| **cos(vetor C, vetor ref)** | **dist 6e-08** | **gate real: PASS** |
-| MFCC frame-a-frame | < 2.1 (1 frame) | explicado abaixo |
-
-O outlier (frame 14, d=1..3, −2.08) é **piso de ruído float32 em
-quase-silêncio**: potência máx 0.02 (contra 20 no frame 37) → a banda 0
-difere 16 dB (−95.9 vs −79.6) → a DCT espalha `16.4·cos ≈ 2.08` nos
-coefs. A média/cosseno — o que o k-NN usa — não sente (6e-08).
-Limiares do teste documentados em `tools/mfcc_hosttest/main.c`.
+O teste exige 126 frames, valores finitos, erro máximo por coeficiente ≤ 3,0
+e distância cosseno do vetor médio ≤ 1e-4. O limite por coeficiente mantém
+margem para sinais sintéticos de baixa energia; não é uma meta de erro típica.
+A paridade também é exercitada com uma fixture sintética gerada durante os
+testes Python. Esses testes não medem acurácia de identificação.
 
 ## 10. Manutenção
 
-- `mfcc_tables.h` é **gerado**: ` .venv/bin/python tools/export_mfcc.py`.
+- `mfcc_tables.h` é **gerado**: ` .venv/bin/python tools/export_mfcc.py --help`.
   Regenere **só** se mudar parâmetro do §0 — e aí re-treine a base (F2).
 - Memória: ~135 KB transientes (malloc/free por janela) + buffers do
   chamador (64 KB PCM + 20 KB MFCC). S3 tem ~512 KB: ok.
-- Detalhe 125 vs 126: o notebook fatia a concatenação em **blocos de 125**
-  frames; o device processa a janela de 2 s com **126** (center). A média
-  é robusta à diferença — paridade validada pelo cosseno, não pela
-  contagem.
+- O pipeline atual calcula cada janela de 32.000 amostras separadamente:
+  Python e firmware produzem 126 frames. A base histórica de fábrica ainda
+  preserva a segmentação antiga de 125 frames; veja `TREINO.md`.
 - `mfcc_debug_frame()` existe p/ depurar um frame estágio a estágio
   (potência/mel/dB); uso só em teste. De propósito NÃO aplica supressão
   de ruído (§12) — depura os estágios crus.
@@ -212,11 +203,11 @@ $$P_{\text{limpo}}[k] = \max(P[k] - \alpha\cdot N[k],\ \mathrm{floor}\cdot P[k])
 - **Defaults**: $\alpha = 1.2$ (oversubtração), $\mathrm{floor} = 0.05$
   (−13 dB de piso proporcional — bin nunca zera de tutto, não pisca).
 - **Custo**: perfil 513 floats (~2 KB estáticos) + 513 sub+max por frame;
-  transiente da calibração ~65 KB (heap, sob a trava `s_dsp`).
+  transiente da calibração ~65 KB (heap, na tarefa principal).
 - **Paridade**: engine nasce DESLIGADA e sem perfil `ns_apply()` é no-op
   bit-exato — `mfcc_hosttest` continua PASS sem mudar (provado também pelo
   T5 do `ns_hosttest`: calibrar em zeros + processar = bit-idêntico).
-- **Validação funcional** (`make -C tools/ns_hosttest run`, sintético
+- **Validação funcional** (`make -C tests/host/ns run`, sintético
   determinístico): seno 440+880 Hz + ruído branco ±3000, perfil do ruído
   puro → distância cosseno ao limpo **0.0307 → 0.0223** (−27%).
 - **Limites**: só ruído ESTACIONÁRIO (hum/hiss/ventilador). Voz concorrente,
@@ -231,7 +222,7 @@ $$P_{\text{limpo}}[k] = \max(P[k] - \alpha\cdot N[k],\ \mathrm{floor}\cdot P[k])
     ▼
 1. FILTRAGEM & JANELAMENTO
     │  - Limpa ruídos extremos (Passa-banda ~80-7920 Hz)
-    │  - Corta o som em quadros de ~25 ms (ex: 512 amostras)
+    │  - Corta o som em quadros de 64 ms (1024 amostras), hop de 16 ms
     ▼
 2. FFT (Transformada Rápida de Fourier)
     │  - Converte o tempo para frequência

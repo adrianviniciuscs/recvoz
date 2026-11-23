@@ -2,6 +2,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/** @brief Energia de modulação articulatória (RMS temporal de Δc1..Δc12 × 5). */
+float mfcc_frame_modulation(const float *m39xT, int n_frames);
+
+/** @brief Limiar mínimo de modulação p/ aceitar voz (32.0 com ns ativo, 26.0 sem ns). */
+float mfcc_min_voice_mod(void);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,6 +29,7 @@ extern "C" {
 #define MFCC_N_MELS 128
 #define MFCC_WIN_SAMPLES 32000         ///< janela de decisão: 2 s
 #define MFCC_N_FRAMES (1 + MFCC_WIN_SAMPLES / MFCC_HOP)  ///< 126 (center + zero-pad)
+#define MFCC_MIN_VOICE_MOD 26.0f       ///< energia mínima de modulação articulatória (sem ns)
 
 /** @brief Butter 80-7920Hz ida-e-volta (filtfilt), in-place. n = nº de amostras. */
 void mfcc_bandpass(float *x, int n);
@@ -62,6 +69,12 @@ void mfcc_debug_frame(const float *x, int n, int t,
 
 /** @brief Cosseno entre vetores 39-dim (p/ o k-NN da F2). */
 float mfcc_cosine(const float *a, const float *b);
+
+/** @brief Energia de modulação articulatória (RMS temporal de Δc1..Δc12 × 5). */
+float mfcc_frame_modulation(const float *m39xT, int n_frames);
+
+/** @brief Limiar mínimo de modulação p/ aceitar voz (32.0 com ns ativo, 26.0 sem ns). */
+float mfcc_min_voice_mod(void);
 
 #ifdef __cplusplus
 }

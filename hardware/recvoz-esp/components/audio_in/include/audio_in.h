@@ -34,6 +34,7 @@ esp_err_t audio_in_init(const audio_in_config_t *cfg);
 /**
  * @brief Lê `n` amostras int16 mono com DC blocker aplicado (bloqueante).
  *
+ * Uso exclusivo pela tarefa principal (não é thread-safe).
  * O filtro CC é contínuo entre chamadas — não chamar com gaps longos
  * no meio de uma frase (o warmup só ocorre no init).
  */

@@ -1,44 +1,47 @@
-# recvoz-esp — firmware (ESP32-S3, ESP-IDF 6.1)
+# recvoz-esp — ESP32-S3 / ESP-IDF 6.1
 
-Reconhecimento de locutor **on-board**: ouve 2 s → MFCC 39 → k-NN →
-mostra carinha no OLED. Sem laptop na demo.
+Reconhecimento de locutor local: captura 2 s de voz com VAD passa-banda, aplica
+supressão espectral (Berouti) e veto de ruído por modulação, extrai MFCC 39,
+classifica via **GMM-UBM + CMN** (com adaptação MAP e $k$-NN legado), mostra o
+resultado no OLED e permite matrícula em NVS.
 
+| Componente | Responsabilidade |
+|---|---|
+| `audio_in` | I2S INMP441, PCM mono 16 kHz e DC blocker contínuo |
+| `mfcc` | DSP portátil, supressão espectral de Berouti e métrica `mod` |
+| `knn` | Distância cosseno, voto ponderado e rejeição (legado/comparação) |
+| `speaker_db` | UBM + GMM-UBM + adaptação MAP incremental, base de fábrica e NVS |
+| `recvoz_display` | SSD1306: estado, nome e placar |
+| `main/capture.c` | VAD passa-banda adaptativo e janela de voz |
+| `main/console.c` | Fila de comandos (inclui `grab` para coleta via `tools/grab_esp.py`) |
+| `main/recognition.c` | Veto de ruído, classificação e apresentação |
+| `main/recvoz-esp.c` | Coordenação na tarefa principal |
+
+## Compilar
+
+Com ESP-IDF 6.1 ativado, execute **nesta pasta**:
+
+```bash
+idf.py build
+idf.py -p /dev/ttyACM0 flash monitor
 ```
-INMP441 (I2S) → audio_in → mfcc → speaker_db → recvoz_display (SSD1306)
-                                    ↑ botão GPIO6 / console serial
+
+Execute testes e exportação **na raiz do repositório**:
+
+```bash
+make test
+.venv/bin/python tools/export_mfcc.py --help
 ```
-
-## Componentes
-
-| Componente | Papel | Detalhe em |
-|---|---|---|
-| `audio_in` | INMP441 16 kHz mono + DC blocker | seu `README.md` |
-| `mfcc` | MFCC 39-dim bit-igual ao notebook | `docs/MFCC.md` |
-| `knn` | k-NN k=3 cosseno + τ (didático, portátil) | seu `README.md` |
-| `speaker_db` | base de locutores: fábrica + NVS (usa o `knn`) | seu `README.md` |
-| `recvoz_display` | robozinho: OUVINDO / nome / DESCONHECIDO | seu `README.md` |
-| `main` | VAD + máquina de estados + enroll + console | `docs/CALIBRACAO.md` |
 
 ## Documentos
 
-- `docs/PINOUT.md` — **leia primeiro**: mapa de GPIOs, fiação, pinos proibidos.
-- `docs/TREINO.md` — coleta → notebook → export → validação: como a base nasce.
-- `docs/MFCC.md` — pipeline DSP com equações + paridade numérica.
-- `docs/CLASSIFICACAO.md` — VAD → k-NN → limiar → enroll, de ponta a ponta.
-- `docs/CALIBRACAO.md` — calibrar VAD/τ em sala + roteiro da demo + troubleshooting.
+- [PINOUT](docs/PINOUT.md): fiação e pinos.
+- [TREINO](docs/TREINO.md): coleta, exportação e base histórica.
+- [MFCC](docs/MFCC.md): equações e tolerâncias numéricas.
+- [CLASSIFICACAO](docs/CLASSIFICACAO.md): decisão e rejeição.
+- [CALIBRACAO](docs/CALIBRACAO.md): comandos e demonstração.
+- [Reprodução completa](../../docs/REPRODUCAO.md).
 
-## Quickstart
-
-```bash
-idf.py set-target esp32s3
-idf.py build
-idf.py -p /dev/ttyACM0 flash monitor   # 115200, comandos: enroll/list/reset/tau/vad/hold/diag/ns/nscal
-make -C ../../tools/mfcc_hosttest run  # teste de paridade MFCC (gate da F1)
-make -C ../../tools/ns_hosttest run    # teste do supressor de ruído
-make -C ../../tools/knn_hosttest run   # teste do k-NN (inclui LOO 24/24)
-.venv/bin/python ../../tools/export_mfcc.py  # regenera tabelas (só se mudar o DSP)
-```
-
-Base de fábrica: **LOCUTOR_A + LOCUTOR_B** (24 vetores, `speaker_db/enroll_default.h`).
-Enroll (15 s, botão GPIO6→GND ou `enroll NOME`) salva até 3 extras em NVS
-como `VISITANTE` (ou o nome dado).
+A base versionada tem dois locutores e 24 vetores históricos. Matrícula salva
+até três extras. O exportador novo suporta 1–8 locutores de fábrica e precisa
+de nova validação do limiar antes de substituir a base histórica.

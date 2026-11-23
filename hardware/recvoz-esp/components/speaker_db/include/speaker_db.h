@@ -15,7 +15,7 @@ extern "C" {
 #define SPK_EXTRA_MAX 3
 #define SPK_EXTRA_VECS 8   ///< 15 s de enroll = 7 janelas de 2 s (cabe)
 #define SPK_NAME_LEN 16
-#define SPK_TAU_DEFAULT 0.017f ///< limiar desconhecido, s/ c0 (gap 0.0119-0.0219, base com-voz; calibrar em sala)
+#define SPK_TAU_DEFAULT 0.42f ///< limiar equivalente GMM-UBM (LLR >= +0.16; d = 0.5*(1-LLR))
 
 /** @brief nvs_flash_init + carrega extras + tau da NVS. Idempotente. */
 esp_err_t speaker_db_init(void);
@@ -34,6 +34,9 @@ const char *speaker_db_name(int idx);
  * valer e os de fábrica saem da votação (bit persistido; `reset` reverte).
  */
 esp_err_t speaker_db_enroll(const char *name, const float *vecs, int nvec);
+
+/** @brief Cadastra locutor extra com modelo GMM-UBM adaptado (192 floats) + vetores médios. */
+esp_err_t speaker_db_enroll_gmm(const char *name, const float *vecs, int nvec, const float *gmm_means_Mx24);
 
 /** @brief Apaga extras da NVS (volta p/ só fábrica). */
 esp_err_t speaker_db_reset(void);
@@ -62,6 +65,13 @@ int speaker_db_classify_full(const float *mean39, spk_result_t *out);
 
 /** @brief Menor distância ao locutor idx (p/ diag/calibração). */
 float speaker_db_dist_to(int idx, const float *mean39);
+
+/** @brief Classifica janela MFCC 39xT via GMM-UBM + CMN; preenche out e LLRs top-2. */
+int speaker_db_classify_gmm(const float *m39xT, int n_frames, spk_result_t *out,
+                            float *out_llr1, float *out_llr2);
+
+/** @brief LLR de uma janela MFCC 39xT para o locutor idx (para diag). */
+float speaker_db_llr_to(int idx, const float *m39xT, int n_frames);
 
 #ifdef __cplusplus
 }

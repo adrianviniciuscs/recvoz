@@ -63,8 +63,9 @@ esp_err_t audio_in_read(int16_t *pcm_out, size_t n_samples)
         size_t want = n_samples - got;
         if (want > FRAME_SAMPLES) want = FRAME_SAMPLES;
         size_t nbytes = 0;
-        esp_err_t r = i2s_channel_read(s_rx, raw, FRAME_SAMPLES * 2 * sizeof(int32_t), &nbytes, portMAX_DELAY);
+        esp_err_t r = i2s_channel_read(s_rx, raw, want * 2 * sizeof(int32_t), &nbytes, portMAX_DELAY);
         if (r != ESP_OK) { free(raw); return r; }
+        if (nbytes == 0 || nbytes % (2 * sizeof(int32_t)) != 0) { free(raw); return ESP_FAIL; }
         int words = nbytes / sizeof(int32_t), m = 0;
         for (int i = 0; i < words && m < (int)want; i += 2) { // só slot LEFT
             int32_t s = raw[i] >> 16;

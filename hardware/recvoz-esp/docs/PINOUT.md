@@ -49,7 +49,7 @@
 - Taxa: **16 kHz mono 16-bit** (igual ao `TARGET_SR` dos notebooks).
 - DC blocker Q15 (`32630/32768 ≈ 0,9957`) remove offset CC.
 - Janela de decisão: **2 s = 32000 amostras = 64 KB**.
-- Referência original: `/home/adrian/projetos/inmp441_mic` (firmware + `tools/live_audio.py`).
+- Referência original: projeto `inmp441_mic` (firmware + `tools/live_audio.py`).
 
 ## 3. Botão de enroll (cadastro)
 

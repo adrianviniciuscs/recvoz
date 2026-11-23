@@ -6,12 +6,16 @@
 //
 // Comandos seriais (115200): enroll/list/reset/tau/vad/hold/diag/ns/nscal
 #include <assert.h>
-#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
+#include "console.h"
+#include "capture.h"
+#include "recognition.h"
+#include "command_args.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_console.h"
@@ -21,103 +25,70 @@
 #include "mfcc.h"
 #include "noise_sup.h"
 #include "speaker_db.h"
+#include "gmm_ubm.h"
 #include "recvoz_display.h"
 
 static const char *TAG = "recvoz";
 
-#define BTN_GPIO 6            // botão enroll p/ GND (pull-up interno)
-#define VAD_CHUNK 1600        // 100 ms @16k
 #define VAD_HOT_N 3           // 300 ms de voz p/ disparar
 #define ENROLL_WINS 7         // 7 x 2 s ~= 15 s
-#define CAP_ITERS 100         // 10 s máx p/ juntar 2 s de voz
 #define RESULT_HOLD_MS 5000   // quanto tempo o resultado fica no display
 
 static int s_hold_ms = RESULT_HOLD_MS;
 
 static int s_vad_thr = 300;
-static volatile int s_enroll_req; // 1 = console pediu enroll
-static char s_enroll_name[16];
 
 static int16_t s_win[AUDIO_IN_WINDOW_SAMPLES]; // 64 KB
 static float s_m[MFCC_DIM * MFCC_N_FRAMES];    // ~20 KB
 
-// Supressão de ruído: lote de silêncio p/ calibrar o perfil (16 KB).
-// Acumulado no idle (listen_trigger, SEM trava — só memcpy de PCM) e
-// consumido no topo do loop SOB a trava s_dsp (mfcc_noise_calibrate usa
-// heap + escreve o perfil lido pelo frame_mfcc). Nunca o contrário:
-// calibrar dentro do listen_trigger travaria o VAD por ~100 ms a cada
-// decisão (a trava fica presa durante capture+classify+display).
+// Perfil de ruído acumulado e aplicado apenas pela tarefa principal.
 static int16_t s_ns_buf[NS_CAL_SAMPLES];
 static int s_ns_fill;
-static volatile int s_ns_pending;
+static int s_ns_pending;
 static int s_ns_auto = 1; // 1 = auto-calibra no silêncio; 0 = só via `nscal`
 
-// Trava o DSP: mfcc_process_window aloca ~150 KB transientes e usa os
-// buffers estáticos acima — diag (task console) x loop principal não
-// podem rodar DSP juntos (causa "mfcc falhou" por OOM + corrupção).
-static SemaphoreHandle_t s_dsp;
-
-static int rms16(const int16_t *p, int n)
-{
-    long long s = 0;
-    for (int i = 0; i < n; i++) s += (int)p[i] * p[i];
-    return (int)sqrt((double)s / n);
-}
-
-// Junta 2 s SÓ de blocos acima do VAD (protótipo; definição abaixo).
-// prog(got, need) é chamado a cada ~0.4 s p/ barra de progresso (pode ser NULL).
-static int capture_voiced(int16_t *out, int trace, void (*prog)(int, int));
-
-// Aguarda voz (VAD, buffer local — seguro sem trava). 1 = voz, 0 = enroll.
+// 1 = voz, 0 = botão, 2 = comando ou perfil pendente.
 static int listen_trigger(void)
 {
     static int16_t chunk[VAD_CHUNK];
+    static int quiet_streak;
     int hot = 0;
     ESP_ERROR_CHECK(recvoz_display_listening());
     while (1) {
-        if (gpio_get_level(BTN_GPIO) == 0 || s_enroll_req) return 0; // enroll
+        if (console_pending() || s_ns_pending) return 2;
+        if (gpio_get_level(BTN_GPIO) == 0) { s_ns_fill = 0; quiet_streak = 0; return 0; } // enroll
         ESP_ERROR_CHECK(audio_in_read(chunk, VAD_CHUNK));
-        if (rms16(chunk, VAD_CHUNK) > s_vad_thr) {
+        int r = capture_rms16(chunk, VAD_CHUNK);
+        int eff_vad = capture_effective_vad(s_vad_thr);
+        if (r > eff_vad) {
+            s_ns_fill = 0;
+            quiet_streak = 0;
             if (++hot >= VAD_HOT_N) break;
         } else {
             hot = 0;
-            // Silêncio p/ o perfil de ruído: limiar CONSERVADOR (2/3 do VAD)
-            // p/ não vazar fala fraca no N[k] (vazar = subtrair o locutor).
-            if (s_ns_auto && !s_ns_pending && s_ns_fill < NS_CAL_SAMPLES) {
-                int r = rms16(chunk, VAD_CHUNK);
-                if (r <= s_vad_thr * 2 / 3) {
+            // Silêncio p/ o perfil de ruído: na 1ª calibração aceita até 4/5 do VAD
+            // para calibrar rápido no boot; nas adaptações exige 2/3 do VAD e 2,5 s
+            // de silêncio contínuo (25 blocos) para não vazar fala fraca no N[k].
+            int ready = ns_is_ready();
+            int ceil = ready ? (eff_vad * 2 / 3) : (s_vad_thr * 4 / 5);
+            if (r <= ceil) {
+                if (quiet_streak < 25) quiet_streak++;
+                if (s_ns_auto && !s_ns_pending && s_ns_fill < NS_CAL_SAMPLES && (!ready || quiet_streak >= 25)) {
                     int cp = NS_CAL_SAMPLES - s_ns_fill;
                     if (cp > VAD_CHUNK) cp = VAD_CHUNK;
                     memcpy(s_ns_buf + s_ns_fill, chunk, cp * sizeof(int16_t));
                     s_ns_fill += cp;
                     if (s_ns_fill >= NS_CAL_SAMPLES) s_ns_pending = 1;
                 }
+            } else {
+                quiet_streak = 0;
+                s_ns_fill = 0;
             }
         }
     }
+    s_ns_fill = 0;
+    quiet_streak = 0;
     return 1;
-}
-
-// Junta 2 s SÓ de blocos acima do VAD (pula silêncio/reação), p/ a janela
-// não diluir a média com quietude. 1 = ok, 0 = timeout, -1 = botão.
-static int capture_voiced(int16_t *out, int trace, void (*prog)(int, int))
-{
-    static int16_t chunk[VAD_CHUNK];
-    int got = 0, reported = -1;
-    for (int it = 0; it < CAP_ITERS && got < AUDIO_IN_WINDOW_SAMPLES; it++) {
-        if (gpio_get_level(BTN_GPIO) == 0) return -1;
-        ESP_ERROR_CHECK(audio_in_read(chunk, VAD_CHUNK));
-        int r = rms16(chunk, VAD_CHUNK);
-        if (trace) printf(r > s_vad_thr ? "+%d " : ".%d ", r);
-        if (r > s_vad_thr) {
-            memcpy(out + got, chunk, sizeof(chunk));
-            got += VAD_CHUNK;
-            if (prog && got - reported >= 6400) { reported = got; prog(got, AUDIO_IN_WINDOW_SAMPLES); }
-        }
-    }
-    if (trace) printf("\n  voz: %d/%d blocos\n", got / VAD_CHUNK, AUDIO_IN_WINDOW_SAMPLES / VAD_CHUNK);
-    if (prog) prog(got, AUDIO_IN_WINDOW_SAMPLES);
-    return got >= AUDIO_IN_WINDOW_SAMPLES ? 1 : 0;
 }
 
 // Contagem regressiva ao vivo do enroll (segundos de VOZ restantes).
@@ -132,51 +103,6 @@ static void enroll_prog(int got, int need)
     recvoz_display_show(RECVOZ_FACE_LISTENING, lbl);
 }
 
-static void do_classify(void) // s_dsp travado pelo chamador
-{
-    int nf = mfcc_process_window(s_win, s_m);
-    if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou"); return; }
-    float mean[MFCC_DIM];
-    mfcc_mean_vector(s_m, nf, mean);
-    spk_result_t r;
-    int idx = speaker_db_classify_full(mean, &r);
-    const char *wn = idx >= 0 ? speaker_db_name(idx) : "?";
-    const char *near = r.nearest >= 0 ? speaker_db_name(r.nearest) : "?";
-    const char *rn = r.runner >= 0 ? speaker_db_name(r.runner) : "?";
-    float tau = speaker_db_get_tau();
-    if (idx < 0)
-        ESP_LOGI(TAG, "DESCONHECIDO (quase %s) d=%.4f (2o %s %.4f, tau=%.4f)",
-                 near, r.dmin, rn, r.drunner, tau);
-    else
-        ESP_LOGI(TAG, "%s d=%.4f (2o %s %.4f, tau=%.4f, margem=%.4f)",
-                 wn, r.dmin, rn, r.drunner, tau, r.drunner - r.dmin);
-    // Placar ASCII no monitor (espelho do display, 1:1).
-    {
-        float maxv = r.drunner > tau ? r.drunner : tau;
-        maxv *= 1.15f;
-        if (maxv < 0.05f) maxv = 0.05f;
-        int fill = (int)(30 * r.dmin / maxv), tick = (int)(30 * tau / maxv);
-        if (fill > 30) fill = 30;
-        if (tick > 30) tick = 30;
-        char bar[32];
-        for (int i = 0; i < 30; i++) bar[i] = i < fill ? '#' : (i == tick ? '|' : '-');
-        bar[30] = 0;
-        printf("+------------------------------+\n");
-        printf("| 1 %-10.10s %7.3f |\n", idx >= 0 ? wn : near, r.dmin);
-        printf("| 2 %-10.10s %7.3f |\n", rn, r.runner >= 0 ? r.drunner : -1.0f);
-        printf("| [%s] |\n", bar);
-        printf("| TAU %.3f => %s |\n", tau, idx >= 0 ? "CONHECIDO :-)" : "DESCONHECIDO :-(");
-        printf("+------------------------------+\n");
-    }
-    // Carinha 3/5 do tempo + placar top-2 no resto (didático).
-    // No DESCONHECIDO o placar mostra quem ele QUASE foi (nearest).
-    if (idx < 0) ESP_ERROR_CHECK(recvoz_display_unknown());
-    else ESP_ERROR_CHECK(recvoz_display_happy(wn));
-    vTaskDelay(pdMS_TO_TICKS(s_hold_ms * 3 / 5));
-    ESP_ERROR_CHECK(recvoz_display_score(idx >= 0 ? wn : near, r.dmin, rn, r.runner >= 0 ? r.drunner : -1, tau));
-    vTaskDelay(pdMS_TO_TICKS(s_hold_ms - s_hold_ms * 3 / 5));
-}
-
 static void do_enroll(const char *name)
 {
     char who[SPK_NAME_LEN];
@@ -185,27 +111,43 @@ static void do_enroll(const char *name)
     // Estáticos: a main task tem só 3584 B de stack; m[] tem ~20 KB.
     // (stack overflow aqui = DoubleException + reset WDT, visto em teste)
     static float evecs[ENROLL_WINS][MFCC_DIM];
-    xSemaphoreTake(s_dsp, portMAX_DELAY);
+    static gmm_adapt_ctx_t gctx;
+    static float gmm_means[GMM_UBM_M * GMM_UBM_D];
+    gmm_adapt_init(&gctx);
     for (int w = 0; w < ENROLL_WINS; w++) {
         s_enroll_banked = w * AUDIO_IN_WINDOW_SAMPLES;
         enroll_prog(0, AUDIO_IN_WINDOW_SAMPLES);
         int tries = 0, r = 0;
-        while ((r = capture_voiced(s_win, 0, enroll_prog)) == 0 && tries < 2) {
+        while ((r = capture_voiced(s_win, capture_effective_vad(s_vad_thr), 0, enroll_prog)) == 0 && tries < 2) {
             tries++;
             ESP_LOGI(TAG, "janela %d fraca, repetindo (%d/2)...", w + 1, tries);
             ESP_ERROR_CHECK(recvoz_display_show(RECVOZ_FACE_LISTENING, "FALE ALTO"));
         }
-        if (r < 0) { ESP_LOGI(TAG, "enroll cancelado"); xSemaphoreGive(s_dsp); return; }
-        if (r == 0) { ESP_LOGI(TAG, "enroll abortado: pouca voz"); xSemaphoreGive(s_dsp); return; }
+        if (r < 0) { ESP_LOGI(TAG, "enroll cancelado"); return; }
+        if (r == 0) { ESP_LOGI(TAG, "enroll abortado: pouca voz"); return; }
         int64_t t0 = esp_timer_get_time();
-        int nf = mfcc_process_window(s_win, s_m); // s_m: sob trava, seguro
+        int nf = mfcc_process_window(s_win, s_m);
         ESP_LOGI(TAG, "mfcc %d frames em %lld ms", nf, (esp_timer_get_time() - t0) / 1000);
-        if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou no enroll"); xSemaphoreGive(s_dsp); return; }
+        if (nf <= 0) { ESP_LOGE(TAG, "mfcc falhou no enroll"); return; }
         mfcc_mean_vector(s_m, nf, evecs[w]);
-        ESP_LOGI(TAG, "enroll %d/%d", w + 1, ENROLL_WINS);
+        float mod = mfcc_frame_modulation(s_m, nf);
+        float d_ns = ns_noise_dist(evecs[w]);
+        if (mod < mfcc_min_voice_mod() || d_ns <= 0.030f) {
+            ESP_LOGW(TAG, "janela %d parece ruído da sala (mod=%.1f d_ns=%.4f), repetindo...", w + 1, mod, d_ns);
+            if (tries < 2) {
+                tries++;
+                ESP_ERROR_CHECK(recvoz_display_show(RECVOZ_FACE_LISTENING, "FALE ALTO"));
+                w--;
+                continue;
+            }
+            ESP_LOGI(TAG, "enroll abortado: somente ruído detectado");
+            return;
+        }
+        gmm_adapt_add_window(&gctx, s_m, nf);
+        ESP_LOGI(TAG, "enroll %d/%d (mod=%.1f d_ns=%.4f)", w + 1, ENROLL_WINS, mod, d_ns);
     }
-    xSemaphoreGive(s_dsp);
-    if (speaker_db_enroll(who, (const float *)evecs, ENROLL_WINS) == ESP_OK)
+    gmm_adapt_finish(&gctx, gmm_means);
+    if (speaker_db_enroll_gmm(who, (const float *)evecs, ENROLL_WINS, gmm_means) == ESP_OK)
         ESP_ERROR_CHECK(recvoz_display_happy(who));
     vTaskDelay(pdMS_TO_TICKS(3000));
 }
@@ -213,9 +155,10 @@ static void do_enroll(const char *name)
 // ---------- console ----------
 static int cmd_enroll(int argc, char **argv)
 {
-    snprintf(s_enroll_name, sizeof s_enroll_name, "%s", argc > 1 ? argv[1] : "VISITANTE");
-    s_enroll_req = 1;
-    printf("enroll %s agendado (aperte o botão ou aguarde o loop)\n", s_enroll_name);
+    if (argc > 2 || (argc == 2 && strlen(argv[1]) >= SPK_NAME_LEN)) {
+        puts("uso: enroll [NOME de ate 15 caracteres]"); return 1;
+    }
+    do_enroll(argc > 1 ? argv[1] : "VISITANTE");
     return 0;
 }
 static int cmd_list(int argc, char **argv)
@@ -264,7 +207,7 @@ static int cmd_ns(int argc, char **argv)
     else if (!strcmp(argv[1], "off")) { ns_set_enabled(0); printf("ns off\n"); }
     else if (!strcmp(argv[1], "auto") && argc > 2) {
         s_ns_auto = !strcmp(argv[2], "on") ? 1 : 0;
-        if (!s_ns_auto) s_ns_fill = 0;
+        if (!s_ns_auto) s_ns_fill = s_ns_pending = 0;
         printf("ns auto %s\n", s_ns_auto ? "on" : "off");
     } else if (!strcmp(argv[1], "alpha") && argc > 2) {
         ns_get_params(&a, &f);
@@ -282,19 +225,18 @@ static int cmd_ns(int argc, char **argv)
     return 0;
 }
 // Força calibração agora: junta 0.5 s de SILÊNCIO (fique quieto!) e calibra.
-// Aborta se entrar voz no meio, p/ não contaminar o perfil. Buffer próprio
-// (não o s_ns_buf do idle) p/ não disputar com o listen_trigger.
+// Aborta se entrar voz no meio, p/ não contaminar o perfil.
 static int cmd_nscal(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    static int16_t cal[NS_CAL_SAMPLES]; // estático: console task tem pouca stack
+    static int16_t cal[NS_CAL_SAMPLES]; // estático: a tarefa principal tem pouca stack
     static int16_t chunk[VAD_CHUNK];
     printf("juntando 0.5 s de silencio... FIQUE QUIETO\n");
     int got = 0, guard = 0;
     while (got < NS_CAL_SAMPLES && guard++ < 100) {
         if (gpio_get_level(BTN_GPIO) == 0) { printf("cancelado\n"); return 1; }
         ESP_ERROR_CHECK(audio_in_read(chunk, VAD_CHUNK));
-        int r = rms16(chunk, VAD_CHUNK);
+        int r = capture_rms16(chunk, VAD_CHUNK);
         if (r > s_vad_thr * 2 / 3) { printf("voz no meio (rms=%d), abortado\n", r); return 1; }
         int cp = NS_CAL_SAMPLES - got;
         if (cp > VAD_CHUNK) cp = VAD_CHUNK;
@@ -302,11 +244,9 @@ static int cmd_nscal(int argc, char **argv)
         got += cp;
     }
     if (got < NS_CAL_SAMPLES) { printf("timeout\n"); return 1; }
-    xSemaphoreTake(s_dsp, portMAX_DELAY);
     int nf = mfcc_noise_calibrate(cal, NS_CAL_SAMPLES);
-    s_ns_fill = 0; // recomeça o acúmulo do idle do zero (descarta pré-cal)
-    xSemaphoreGive(s_dsp);
-    // Formato literal (mesmo motivo do ESP_LOGI acima; -Werror aqui).
+    s_ns_fill = s_ns_pending = 0; // descarta perfil pendente anterior
+    // Reporta o resultado da calibração.
     if (nf > 0) printf("ns calibrado (%d frames)\n", nf);
     else printf("ns falhou\n");
     return nf > 0 ? 0 : 1;
@@ -317,50 +257,82 @@ static int cmd_diag(int argc, char **argv)
 {
     (void)argc; (void)argv;
     printf("juntando 2 s de voz... FALE agora (contínuo)\n");
-    xSemaphoreTake(s_dsp, portMAX_DELAY);
-    int r = capture_voiced(s_win, 1, NULL);
-    if (r <= 0) { printf(r < 0 ? "cancelado\n" : "pouca voz\n"); xSemaphoreGive(s_dsp); return 1; }
+    int r = capture_voiced(s_win, s_vad_thr, 1, NULL);
+    if (r <= 0) { printf(r < 0 ? "cancelado\n" : "pouca voz\n"); return 1; }
     int nf = mfcc_process_window(s_win, s_m);
-    if (nf <= 0) { printf("mfcc falhou\n"); xSemaphoreGive(s_dsp); return 1; }
+    if (nf <= 0) { printf("mfcc falhou\n"); return 1; }
     float mean[MFCC_DIM];
     mfcc_mean_vector(s_m, nf, mean);
-    printf("c0=%.1f | dists:", mean[0]);
+    printf("c0=%.1f | llr:", mean[0]);
     for (int i = 0; i < speaker_db_count(); i++)
-        printf(" %s=%.4f", speaker_db_name(i), speaker_db_dist_to(i, mean));
+        printf(" %s=%.3f", speaker_db_name(i), speaker_db_llr_to(i, s_m, nf));
     printf(" (tau=%.4f)\n", speaker_db_get_tau());
     float na, nf2;
     ns_get_params(&na, &nf2);
     printf("ns: %s pronto=%s alpha=%.2f floor=%.3f beta=%.2f\n",
            ns_is_enabled() ? "on" : "off", ns_is_ready() ? "sim" : "nao",
            na, nf2, ns_get_beta());
-    xSemaphoreGive(s_dsp);
     return 0;
 }
 
-static void console_init(void)
+static int cmd_grab(int argc, char **argv)
 {
-    esp_console_repl_t *repl = NULL;
-    esp_console_repl_config_t rc = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
-    rc.prompt = "recvoz>";
-    esp_console_dev_uart_config_t uc = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_uart(&uc, &rc, &repl));
-    const esp_console_cmd_t cmds[] = {
-        {.command = "enroll", .help = "cadastra locutor: enroll [NOME]", .hint = NULL, .func = cmd_enroll, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-        {.command = "list", .help = "lista locutores", .hint = NULL, .func = cmd_list, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-        {.command = "reset", .help = "apaga extras (volta p/ fabrica)", .hint = NULL, .func = cmd_reset, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-        {.command = "tau", .help = "limiar desconhecido: tau [V]", .hint = NULL, .func = cmd_tau, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-        {.command = "vad", .help = "limiar de voz (rms): vad [V]", .hint = NULL, .func = cmd_vad, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-        {.command = "hold", .help = "tempo do resultado no display (ms): hold [MS]", .hint = NULL, .func = cmd_hold, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-        {.command = "diag", .help = "captura 2 s e mostra rms + distancias", .hint = NULL, .func = cmd_diag, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-        {.command = "ns", .help = "supressao de ruido: ns [on|off|auto on|off|alpha F|floor F|beta F]", .hint = NULL, .func = cmd_ns, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-        {.command = "nscal", .help = "calibra o perfil de ruido agora (0.5 s de silencio)", .hint = NULL, .func = cmd_nscal, .argtable = NULL, .func_w_context = NULL, .context = NULL},
-    };
-    for (int i = 0; i < 9; i++) ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[i]));
-    ESP_ERROR_CHECK(esp_console_start_repl(repl));
+    static const char B64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int sec = (argc > 1) ? atoi(argv[1]) : 2;
+    if (sec < 1) sec = 1;
+    if (sec > 3) sec = 3;
+    int total = sec * 16000;
+    int16_t *buf = (int16_t *)malloc((size_t)total * sizeof(int16_t));
+    if (!buf) { printf("sem memoria para %d s\n", sec); return 1; }
+    ESP_ERROR_CHECK(recvoz_display_show(RECVOZ_FACE_LISTENING, "GRAVANDO"));
+    for (int got = 0; got < total; got += VAD_CHUNK) {
+        int n = total - got;
+        if (n > VAD_CHUNK) n = VAD_CHUNK;
+        if (audio_in_read(buf + got, n) != ESP_OK) { free(buf); return 1; }
+    }
+    const uint8_t *raw = (const uint8_t *)buf;
+    int nbytes = total * (int)sizeof(int16_t);
+    printf("RECVOZ_B64_START %d\n", total);
+    char line[76];
+    int pos = 0;
+    for (int i = 0; i < nbytes; i += 3) {
+        uint32_t v = ((uint32_t)raw[i] << 16)
+                   | ((i + 1 < nbytes) ? ((uint32_t)raw[i + 1] << 8) : 0)
+                   | ((i + 2 < nbytes) ? (uint32_t)raw[i + 2] : 0);
+        line[pos++] = B64[(v >> 18) & 0x3F];
+        line[pos++] = B64[(v >> 12) & 0x3F];
+        line[pos++] = (i + 1 < nbytes) ? B64[(v >> 6) & 0x3F] : '=';
+        line[pos++] = (i + 2 < nbytes) ? B64[v & 0x3F] : '=';
+        if (pos >= 72) {
+            line[pos] = '\0';
+            puts(line);
+            pos = 0;
+        }
+    }
+    if (pos > 0) { line[pos] = '\0'; puts(line); }
+    puts("RECVOZ_B64_END");
+    fflush(stdout);
+    free(buf);
+    return 0;
 }
 
-// (botão lido por nível em listen_trigger/capture_voiced; sem espera soltar
-//  p/ não travar o loop — o debounce é o poll de 100 ms dos chunks)
+static int execute_command(int argc, char **argv)
+{
+    if (!command_args_valid(argc, argv)) { puts("argumentos invalidos; consulte help e docs/CALIBRACAO.md"); return 1; }
+    if (!strcmp(argv[0], "enroll")) return cmd_enroll(argc, argv);
+    if (!strcmp(argv[0], "list")) return cmd_list(argc, argv);
+    if (!strcmp(argv[0], "reset")) return cmd_reset(argc, argv);
+    if (!strcmp(argv[0], "tau")) return cmd_tau(argc, argv);
+    if (!strcmp(argv[0], "vad")) return cmd_vad(argc, argv);
+    if (!strcmp(argv[0], "hold")) return cmd_hold(argc, argv);
+    if (!strcmp(argv[0], "diag")) return cmd_diag(argc, argv);
+    if (!strcmp(argv[0], "ns")) return cmd_ns(argc, argv);
+    if (!strcmp(argv[0], "nscal")) return cmd_nscal(argc, argv);
+    if (!strcmp(argv[0], "grab")) return cmd_grab(argc, argv);
+    return 1;
+}
+
+// O botão inicia matrícula após soltar; durante matrícula cancela.
 
 void app_main(void)
 {
@@ -380,58 +352,45 @@ void app_main(void)
     audio_in_config_t ac = AUDIO_IN_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(audio_in_init(&ac));
     ESP_ERROR_CHECK(speaker_db_init());
-    ns_set_enabled(1); // supressão ligada desde o boot; só age após a 1ª
-                       // calibração (auto no silêncio do idle, ou `nscal`)
-    s_dsp = xSemaphoreCreateMutex();
-    assert(s_dsp);
+    ns_set_enabled(1); // supressão ligada desde o boot
+    if (audio_in_read(s_ns_buf, NS_CAL_SAMPLES) == ESP_OK) {
+        int nf = mfcc_noise_calibrate(s_ns_buf, NS_CAL_SAMPLES);
+        if (nf > 0) ESP_LOGI(TAG, "ns: perfil inicial calibrado no boot (%d frames, rms=%d)", nf, ns_get_noise_rms());
+    }
     console_init();
     ESP_LOGI(TAG, "recvoz pronto (%d locutores). Fale p/ classificar, GPIO%d p/ enroll.",
              speaker_db_count(), BTN_GPIO);
 
     while (1) {
-        if (s_ns_pending) { // silêncio acumulado no idle -> calibra sob trava
-            xSemaphoreTake(s_dsp, portMAX_DELAY);
+        if (s_ns_pending) { // silêncio acumulado no idle
             int nf = mfcc_noise_calibrate(s_ns_buf, NS_CAL_SAMPLES);
             s_ns_fill = 0;
             s_ns_pending = 0;
-            xSemaphoreGive(s_dsp);
             // Formato precisa ser literal (a macro ESP_LOGI concatena a
             // string) — nada de ternário escolhendo o formato.
             if (nf > 0) ESP_LOGI(TAG, "ns: perfil calibrado (%d frames)", nf);
             else ESP_LOGI(TAG, "ns: calibracao falhou");
         }
-        if (!listen_trigger()) { // enroll pedido (botão ou console)
-            s_ns_fill = 0; // descarta silêncio pré-enroll; recomeça do zero
-            s_ns_pending = 0;
-            if (s_enroll_req) {
-                char nm[16];
-                snprintf(nm, sizeof nm, "%s", s_enroll_name);
-                s_enroll_req = 0;
-                do_enroll(nm);
-            } else {
-                do_enroll("VISITANTE");
-            }
+        console_process(execute_command);
+        int trigger = listen_trigger();
+        if (trigger == 2) continue;
+        if (trigger == 0) {
+            while (gpio_get_level(BTN_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));
+            s_ns_fill = s_ns_pending = 0;
+            do_enroll("VISITANTE");
             continue;
         }
-        // Voz! Captura + DSP sob trava (diag não entra no meio).
         ESP_LOGI(TAG, "voz! juntando 2 s de fala...");
-        xSemaphoreTake(s_dsp, portMAX_DELAY);
-        if (s_enroll_req) { // pedido chegou durante o gatilho
-            xSemaphoreGive(s_dsp);
-            continue; // volta ao topo, que desvia p/ enroll
-        }
-        int r = capture_voiced(s_win, 0, NULL);
+        int r = capture_voiced(s_win, capture_effective_vad(s_vad_thr), 0, NULL);
         if (r < 0) { // botão no meio: enroll
-            xSemaphoreGive(s_dsp);
+            while (gpio_get_level(BTN_GPIO) == 0) vTaskDelay(pdMS_TO_TICKS(20));
             do_enroll("VISITANTE");
             continue;
         }
         if (r == 0) {
-            xSemaphoreGive(s_dsp);
             ESP_LOGI(TAG, "pouca voz (fale mais alto e contínuo)");
             continue;
         }
-        do_classify(); // trava ainda presa; solta abaixo
-        xSemaphoreGive(s_dsp);
+        recognition_run(s_win, s_m, s_hold_ms);
     }
 }

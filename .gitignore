@@ -27,6 +27,26 @@ hardware/**/sdkconfig.old
 hardware/**/.vscode/
 
 # Binários de teste no host (rebuild via make)
-tools/mfcc_hosttest/hosttest
-tools/ns_hosttest/ns_hosttest
-tools/knn_hosttest/knn_hosttest
+tests/host/mfcc/hosttest
+tests/host/ns/ns_hosttest
+tests/host/knn/knn_hosttest
+tests/host/gmm/gmm_hosttest
+/tests/host/commands/commands
+/tests/host/audio/audio
+/tests/host/persistence/persistence
+
+# Áudios temporários gerados pelo tuner
+scratch_esp_*.wav
+
+# Artefatos de compilação LaTeX
+docs/artigo/*.aux
+docs/artigo/*.log
+docs/artigo/*.out
+docs/artigo/*.toc
+docs/artigo/*.fls
+docs/artigo/*.fdb_latexmk
+docs/artigo/*.synctex.gz
+
+# Metadados locais
+*.egg-info/
+/export/

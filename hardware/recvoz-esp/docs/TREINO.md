@@ -1,89 +1,50 @@
-# Treino — da gravação à base embarcada
+# Treino e base embarcada
 
-> Como a base de locutores nasce e como se prova que ela presta, antes de
-> ir pra flash. A classificação em si está em `CLASSIFICACAO.md`; o DSP em
-> `MFCC.md`.
+O roteiro atualizado está em [REPRODUCAO](../../../docs/REPRODUCAO.md) e o
+protocolo de métricas em [AVALIACAO](../../../docs/AVALIACAO.md).
 
-## 0. Mapa em 30 segundos
+## Coleta e processamento
 
-```
-gravação (INMP441, 16 kHz) ──► audio_exemplo/locutor_<nome>_s<N>.wav
-  ──► notebook: EDA + comparou 5 métodos ──► k-NN venceu (93.3%)
-  ──► tools/export_mfcc.py ──► enroll_default.h (flash) + fixtures de teste
-  ──► validação leave-one-out + escolha do τ ──► firmware classifica
-```
+Use `locutor_NOME_sN.wav`: cada arquivo é uma sessão, nomes ASCII de até 15
+caracteres. Grave pelo menos três sessões por conhecido e pessoas distintas
+para os conjuntos de desconhecidos de calibração e teste.
+O utilitário `tools/grab_raw.py` exige o firmware externo de aquisição
+`inmp441_mic`; o console recvoz não transmite áudio binário.
 
-## 1. Coleta de dados (protocolo)
+O pipeline compartilhado em `src/recvoz/features.py` aplica VAD por blocos de
+100 ms e calcula MFCC em janelas independentes de 32.000 amostras. Cada janela
+produz 126 frames e um vetor médio de 39 dimensões. Sessões nunca são
+concatenadas. A classificação ignora c0.
 
-- Mesmo mic da demo (**INMP441**), ~15 cm da boca, sala quieta.
-- **~15–20 s por sessão, 2 sessões por locutor** (sessões diferentes
-  capturam variação natural de voz/posição).
-- Grave com `tools/grab_raw.py -p /dev/ttyACM0 -d 15` (projeto `inmp441_mic`).
-- Nome: `audio_exemplo/locutor_<nome>_s<numero>.wav` (minúsculas).
-  Arquivos fora da convenção são ignorados pelo export. O `<nome>` vira
-  o nome de fábrica no display.
-- Base atual: **locutor A 2 sessões + locutor B 4 sessões, tudo no mic**.
+## Exportação
 
-## 2. O que o notebook provou
+Na raiz, forneça explicitamente os dados e o áudio de referência:
 
-`eda_speaker_recognition.ipynb` fatia cada áudio em **segmentos de 2 s**
-(125 frames), tira o **vetor médio 39-dim** por segmento e compara
-5 classificadores no mesmo split (Monte Carlo, 15 seeds):
-
-| Método | Acurácia |
-|---|---|
-| k-NN (k=3, cosseno, peso 1/d) | **93.3% ± 4.8%** ← escolhido |
-| Centroide + cosseno | 86.7% ± 7.1% |
-| MLP (64) | 90.8% ± 8.0% |
-| GMM por locutor | 93.3% ± 6.8% |
-| SVM (RBF) | 53.8% |
-
-k-NN empata com o GMM na média (93.3%) com **menos desvio** — e é *lazy*
-(cadastrar = armazenar vetores, sem treino) — perfeito pro enroll
-embarcado. Equações em `CLASSIFICACAO.md` §3.
-
-## 3. Export: do wav à flash (`tools/export_mfcc.py`)
-
-```
-para cada locutor:
-  concatena sessões ──► filtra só blocos de 100 ms com RMS > 300 ──► pipeline MFCC
-  ──► fatia em blocos de 125 frames ──► média por bloco ──► vetor 39-dim
+```bash
+.venv/bin/python tools/export_mfcc.py \
+  --audio-dir audio_exemplo \
+  --fixture-wav audio_exemplo/locutor_NOME_s1.wav \
+  --output-root export
 ```
 
-- **Gate de voz:** só blocos acima do VAD viram protótipo — igual às
-  janelas ao vivo (`capture_voiced`). Base atual: **10 locutor A + 14 locutor B**.
-- Saídas:
-  - `components/speaker_db/enroll_default.h` — base de fábrica (vai pra flash);
-  - `components/mfcc/mfcc_tables.h` — mel CSR + SOS + Savitzky-Golay (só muda se o DSP mudar);
-  - `tools/mfcc_test/*` — fixtures do teste de paridade;
-  - `tools/mfcc_test/enroll_vectors.npz` — base p/ validação offline.
-- Regenere com `.venv/bin/python tools/export_mfcc.py` (exige `librosa==1.0.0`).
+Gera `mfcc_tables.h`, `enroll_default.h`, fixtures, vetores com sessão de origem
+e manifesto. Todos os dados são validados antes de publicar os arquivos.
+Use `--output-root .` apenas ao publicar um modelo já avaliado; execute os
+testes e calibre tau para essa base. Não ajuste o limiar no conjunto de teste.
 
-## 4. Validação offline (gate antes de flashar)
+## Base histórica preservada
 
-**a) Paridade DSP** — `make -C tools/mfcc_hosttest run` tem que dar `PASS`:
-C do firmware vs librosa no mesmo áudio (bandpass 1.6e-06, mel 5e-05,
-**cosseno do vetor médio dist 6e-08**).
+A base versionada conserva 24 vetores obtidos pela concatenação antiga:
+10 do locutor A e 14 do locutor B. O teste LOO histórico retorna 24/24, com
+maior distância da mesma voz 0,0119 e menor da outra voz 0,0219. O limiar
+histórico é 0,017. Esses números não validam rejeição de pessoas desconhecidas.
 
-**b) Leave-one-out na base** — cada vetor classificado contra os demais
-(k=3, sem c0):
+O novo exportador gera 23 vetores a partir dos áudios locais, preservando
+sessões. Essa base foi gerada separadamente para validação do exportador;
+a publicação depende de dados de calibração open-set ainda ausentes.
 
-```
-mesma-voz máx 0.0119   outra-voz mín 0.0219   → gap limpo
-τ = 0.017 (meio do gap) → 24/24, 0 rejeições
-```
+## Persistência
 
-**c) Regra do τ:** tem que caber entre `same_max` e `other_min` com margem
-dos dois lados. Sem gap (overlap), não existe τ bom — o remédio é dado
-melhor (mais sessões, mesmo mic), não τ mágico. O τ final sempre se
-confirma em sala (`docs/CALIBRACAO.md`).
-
-## 5. Versões da base (fábrica × NVS)
-
-| Camada | Onde | O quê |
-|---|---|---|
-| Fábrica | flash (`enroll_default.h`) | base do export; imutável sem reflash |
-| Extras | NVS `recvoz` | até 3 locutores × 8 vetores (enroll ao vivo) |
-| Override | bit `ovr` em NVS | enroll com nome de fábrica aposenta aqueles vetores |
-
-`reset` apaga extras + override (volta pra fábrica). `list` mostra a base ativa.
+Fábrica fica em flash; extras e override ficam em NVS. Matrícula com nome de
+fábrica substitui seus vetores ativos; `reset` remove extras e override.
+Os cadastros em RAM só mudam após sucesso das operações NVS.

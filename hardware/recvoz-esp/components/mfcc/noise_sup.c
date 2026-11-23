@@ -2,9 +2,14 @@
 #include <string.h>
 #include "noise_sup.h"
 
-static float s_N[NS_BINS];       // perfil médio do ruído (~2 KB)
-static int s_ready;              // 1 após a 1ª calibração
-static int s_enabled;            // padrão: desligado (paridade bit a bit)
+#define NS_ANCHOR_DIM 39
+
+static float s_N[NS_BINS];            // perfil médio do ruído (~2 KB)
+static float s_anchor[NS_ANCHOR_DIM]; // âncora MFCC do ruído ambiente
+static int s_has_anchor;
+static int s_noise_rms;               // RMS int16 na banda de voz do silêncio calibrado
+static int s_ready;                   // 1 após a 1ª calibração
+static int s_enabled;                 // padrão: desligado (paridade bit a bit)
 static float s_alpha = NS_ALPHA_DEFAULT;
 static float s_floor = NS_FLOOR_DEFAULT;
 static float s_beta = NS_BETA_DEFAULT;
@@ -12,6 +17,9 @@ static float s_beta = NS_BETA_DEFAULT;
 void ns_reset(void)
 {
     memset(s_N, 0, sizeof s_N);
+    memset(s_anchor, 0, sizeof s_anchor);
+    s_has_anchor = 0;
+    s_noise_rms = 0;
     s_ready = 0;
 }
 
@@ -85,4 +93,50 @@ float ns_snr_db(const float *pow513)
     if (sn <= 0.0) return 99.0f;
     if (sp <= 0.0) return -99.0f;
     return (float)(10.0 * log10(sp / sn));
+}
+
+void ns_set_noise_anchor(const float *vec39, int rms16)
+{
+    if (!vec39 || rms16 < 0) return;
+    if (!s_has_anchor) {
+        memcpy(s_anchor, vec39, sizeof s_anchor);
+        s_noise_rms = rms16;
+        s_has_anchor = 1;
+        return;
+    }
+    float b = s_beta;
+    for (int d = 0; d < NS_ANCHOR_DIM; d++)
+        s_anchor[d] += b * (vec39[d] - s_anchor[d]);
+    s_noise_rms = (int)((1.0f - b) * (float)s_noise_rms + b * (float)rms16 + 0.5f);
+}
+
+const float *ns_get_profile(void)
+{
+    return s_ready ? s_N : NULL;
+}
+
+const float *ns_get_noise_anchor(void)
+{
+    return (s_ready && s_has_anchor) ? s_anchor : NULL;
+}
+
+int ns_get_noise_rms(void)
+{
+    return s_ready ? s_noise_rms : 0;
+}
+
+float ns_noise_dist(const float *mean39)
+{
+    if (!mean39 || !s_enabled || !s_ready || !s_has_anchor) return 1.0f;
+    double d = 0.0, na = 0.0, nb = 0.0;
+    for (int i = 1; i < NS_ANCHOR_DIM; i++) {
+        d += (double)mean39[i] * s_anchor[i];
+        na += (double)mean39[i] * mean39[i];
+        nb += (double)s_anchor[i] * s_anchor[i];
+    }
+    if (na <= 0.0 || nb <= 0.0) return 1.0f;
+    float c = (float)(d / (sqrt(na) * sqrt(nb)));
+    if (c > 1.0f) c = 1.0f;
+    if (c < -1.0f) c = -1.0f;
+    return 1.0f - c;
 }

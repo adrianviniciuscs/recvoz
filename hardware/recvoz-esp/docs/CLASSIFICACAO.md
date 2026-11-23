@@ -13,7 +13,7 @@ mic 16 kHz ──► VAD (RMS/100 ms, 3 quentes) ──► janela 2 s (32000) �
 
 > Supressão de ruído (opcional, ligada por padrão): o silêncio do idle
 > calibra um perfil espectral subtraído antes do mel (`docs/MFCC.md` §12,
-> comandos `ns`/`nscal`). Com `ns off`, o pipeline é bit-igual ao notebook.
+> comandos `ns`/`nscal`). Com `ns off`, o pipeline é comparável à referência Python dentro das tolerâncias dos testes.
 
 Enroll (botão GPIO6 ou `enroll NOME`): 7 janelas de 2 s → 7 médias →
 NVS como locutor novo. A partir daí o k-NN já o conhece.

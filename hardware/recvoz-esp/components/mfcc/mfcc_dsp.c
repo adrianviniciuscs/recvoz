@@ -1,4 +1,4 @@
-// mfcc_dsp — MFCC 39-dim bit a bit compatível com o notebook (librosa 1.x).
+// mfcc_dsp — MFCC 39-dim numericamente compatível com a referência Python (librosa 1.x).
 // Portátil: só libc + libm. Sem dependências do ESP-IDF.
 //
 // Convenções replicadas (verificadas no fonte do librosa/scipy instalados):
@@ -158,7 +158,7 @@ static void mel_to_db(float *mel)
 // mfcc_debug_frame() de propósito NÃO aplica (depura os estágios crus).
 static void frame_mfcc(const float *x, int n, int t, float *out13)
 {
-    float power[MFCC_N_FFT / 2 + 1], mel[MFCC_N_MELS];
+    static float power[MFCC_N_FFT / 2 + 1], mel[MFCC_N_MELS];
     frame_power(x, n, t, power);
     ns_apply(power);
     mel_apply(power, mel);
@@ -241,15 +241,58 @@ int mfcc_noise_calibrate(const int16_t *pcm, int n)
     if (!x || !avg || !frm) { free(x); free(avg); free(frm); return -1; }
     for (int i = 0; i < n; i++) x[i] = pcm[i] / 32768.0f;
     mfcc_bandpass(x, n);
+    double sum2 = 0.0;
+    for (int i = 0; i < n; i++) {
+        double s = (double)x[i] * 32768.0;
+        sum2 += s * s;
+    }
+    int rms16 = (int)sqrt(sum2 / n);
     memset(avg, 0, (MFCC_N_FFT / 2 + 1) * sizeof(float));
     for (int t = 0; t < nfr; t++) {
         frame_power(x, n, t, frm);
         for (int k = 0; k <= MFCC_N_FFT / 2; k++) avg[k] += frm[k];
     }
     for (int k = 0; k <= MFCC_N_FFT / 2; k++) avg[k] /= nfr;
-    ns_update_avg(avg);
-    free(x); free(avg); free(frm);
+    int was_ready = ns_is_ready();
+    if (!was_ready) ns_update_avg(avg);
+    free(x); free(frm);
+    if (rms16 > 0 && nfr >= 9) {
+        float *mcal = (float *)malloc(MFCC_DIM * nfr * sizeof(float));
+        if (mcal) {
+            if (mfcc_process_n(pcm, n, mcal) == nfr) {
+                float mod = mfcc_frame_modulation(mcal, nfr);
+                if (!was_ready || mod < MFCC_MIN_VOICE_MOD) {
+                    if (was_ready) ns_update_avg(avg);
+                    float nvec[MFCC_DIM];
+                    mfcc_mean_vector(mcal, nfr, nvec);
+                    ns_set_noise_anchor(nvec, rms16);
+                }
+            }
+            free(mcal);
+        }
+    }
+    free(avg);
     return nfr;
+}
+
+float mfcc_frame_modulation(const float *m39xT, int n_frames)
+{
+    if (!m39xT || n_frames <= 0) return 0.0f;
+    double total_s2 = 0.0;
+    for (int d = MFCC_N_MFCC + 1; d < 2 * MFCC_N_MFCC; d++) {
+        double s2 = 0.0;
+        for (int t = 0; t < n_frames; t++) {
+            double v = (double)m39xT[d * n_frames + t];
+            s2 += v * v;
+        }
+        total_s2 += 25.0 * (s2 / n_frames);
+    }
+    return (float)sqrt(total_s2);
+}
+
+float mfcc_min_voice_mod(void)
+{
+    return (ns_is_enabled() && ns_is_ready()) ? 32.0f : MFCC_MIN_VOICE_MOD;
 }
 
 void mfcc_mean_vector(const float *m39xT, int n_frames, float *mean39)

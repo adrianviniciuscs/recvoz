@@ -1,7 +1,7 @@
-# mfcc — MFCC 39-dim bit a bit igual ao notebook
+# mfcc — MFCC 39-dim com referência numérica Python
 
 Implementação em C puro (só libc + libm, sem dependências do IDF) da
-cadeia de `eda_speaker_recognition.ipynb`:
+cadeia de `src/recvoz/features.py`, usada pelos notebooks:
 
 ```
 int16 @16kHz -> /32768 -> Butter 80–7920 Hz (filtfilt) -> STFT 1024/256
@@ -32,13 +32,13 @@ O **mesmo** `mfcc_dsp.c` é compilado no host com gcc e comparado contra
 o librosa deste venv (`tools/export_mfcc.py` gera tabelas + esperados):
 
 ```bash
-.venv/bin/python tools/export_mfcc.py   # gera mfcc_tables.h + tools/mfcc_test/*
-make -C tools/mfcc_hosttest run         # PASS exigido
+.venv/bin/python tools/export_mfcc.py --help   # exige caminhos explícitos
+make -C tests/host/mfcc run         # PASS exigido
 ```
 
-Resultado atual: bandpass 1.6e-06 · mel 5e-05 · **cos(vetor médio) dist 6e-08**.
-O erro frame-a-frame (< 2.1) vem do piso de ruído do float32 em frames de
-quase-silêncio — inofensivo p/ cosseno (documentado no hosttest).
+No fixture atual: erro MFCC máximo ≈ 0,0159 e erro do vetor médio ≈ 0,000465.
+O teste exige erro máximo ≤ 3,0, valores finitos e distância cosseno ≤ 1e-4.
+Detalhes em `docs/MFCC.md`; as tolerâncias não medem acurácia de identificação.
 
 ## Supressão de ruído (opcional, `noise_sup.c`)
 
@@ -54,7 +54,7 @@ filtfilt da voz (`mfcc_noise_calibrate()`), por isso o perfil casa.
 Nasce **desligada** (paridade acima intacta); o `main` liga no boot e
 auto-calibra no silêncio do idle (`ns`/`nscal` no console).
 
-Teste próprio (sintético, determinístico): `make -C tools/ns_hosttest run`.
+Teste próprio (sintético, determinístico): `make -C tests/host/ns run`.
 Cobre passthrough desligado, matemática, piso, EMA, paridade fim-a-fim com
 ruído zero (bit-idêntica) e denoising funcional (seno+ruído branco:
 distância ao limpo 0.0307 → 0.0223).
@@ -66,8 +66,8 @@ pesos SG2). Só regenere se mudar algum parâmetro do notebook — e aí
 re-treine tudo (F2):
 
 ```bash
-.venv/bin/python tools/export_mfcc.py
+.venv/bin/python tools/export_mfcc.py --help
 ```
 
-Versão travada: **librosa 1.x** (o `delta` do 0.10 usava outra fórmula;
-`requirements.txt` fixa `librosa==1.0.0`).
+Versão da referência: **librosa==1.0.0**, fixada em `pyproject.toml`.
+Consulte `docs/REPRODUCAO.md` na raiz para publicar tabelas e recalibrar a base.
