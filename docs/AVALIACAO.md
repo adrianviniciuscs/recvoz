@@ -32,13 +32,14 @@ Veja [session-holdout.json](results/session-holdout.json), [open-set.json](resul
   - $k$-NN Cosseno ($k=3$): Acc 100%, FAR 8,8%, FRR 7,1%, **EER 5,0%** (10 splits: `11,7 ± 9,1%`).
   - SVM (RBF): Acc 100%, FAR 5,9%, FRR 35,7%, **EER 29,0%** (10 splits: `22,3 ± 9,7%`).
   - GMM Indep. + CMN: Acc 100%, FAR 0,0%, FRR 35,7%, **EER 48,7%** (10 splits: `31,3 ± 10,4%`).
-  - **GMM-UBM + CMN ($M=8$, NS $\alpha=0,8$):** Acc 100%, FAR 29,4%, FRR 7,1%, **EER 21,0%** (10 splits: `30,2 ± 8,4%`).
-- **Ablação GMM-UBM:** sem CMN o EER sobe para **64,5%** (FAR 97,1%); com CMVN vai a **38,4%**; sem NS vai a **34,0%** (FRR 21,4%).
+  - **GMM-UBM + CMN (UBM interno, 2 loc.):** Acc 100%, FAR 29,4%, FRR 7,1%, **EER 21,0%** (10 splits: `30,2 ± 8,4%`).
+  - **GMM-UBM (UBM externo FLEURS PT-BR, CMN-$c_1$):** Acc 100%, FRR **0,0%**, **EER 1,5%** (10 splits: **`4,4 ± 3,8%`**).
+  - **GMM-UBM (UBM externo FLEURS PT-BR, sem CMN):** Acc 100%, FRR **0,0%**, **EER 1,5%** (10 splits: **`3,4 ± 3,0%`**).
+- **Ablação GMM-UBM (UBM interno):** sem CMN o EER sobe para **64,5%** (FAR 97,1%); com CMVN vai a **38,4%**; sem NS vai a **34,0%** (FRR 21,4%).
 
-O EER mais alto do GMM-UBM + CMN frente ao $k$-NN no mesmo microfone reflete o
-UBM estimado com apenas 2 locutores de treino (`S1`, `S2`). Treinar o UBM com
-um conjunto mais amplo de falantes externos continua sendo o próximo passo de
-maior impacto.
+Com o UBM externo treinado em 350 janelas (44.100 frames) do corpus público
+*Google FLEURS PT-BR*, o GMM-UBM supera todos os demais classificadores em EER
+mantendo exatamente os mesmos `1,66 KiB` em Flash e `768 B`/locutor na NVS.
 
 ## Resultados históricos
 

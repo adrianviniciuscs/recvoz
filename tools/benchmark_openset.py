@@ -60,16 +60,32 @@ def load_sessions_custom(directory, vad=300, use_ns=True, alpha=0.8):
 def extract_gmm_features(frame_mat, norm="cmn", use_deltas=True):
     """(39, T) -> (T, D) com seleção de c1..c12 (+ delta c1..c12) e normalização por janela."""
     if use_deltas:
-        x = np.vstack([frame_mat[1:13], frame_mat[14:26]]).T  # (T, 24)
+        x = np.vstack([frame_mat[1:13], frame_mat[14:26]]).T.copy()  # (T, 24)
     else:
-        x = frame_mat[1:13].T  # (T, 12)
+        x = frame_mat[1:13].T.copy()  # (T, 12)
     if norm == "cmn":
         x = x - x.mean(axis=0, keepdims=True)
+    elif norm == "cmn_c1":
+        x[:, 0] -= x[:, 0].mean()
     elif norm == "cmvn":
         mu = x.mean(axis=0, keepdims=True)
         sd = np.maximum(x.std(axis=0, keepdims=True), 1e-6)
         x = (x - mu) / sd
     return x
+
+
+def load_external_ubm_frames(directory, max_windows=350, vad=300):
+    """Carrega janelas de um corpus externo (ex.: Google FLEURS PT-BR) para o UBM."""
+    frames = []
+    for p in sorted(Path(directory).glob("*.wav")):
+        pcm = load_audio(p)
+        ns = auto_noise_profile(pcm, vad)
+        for w in voiced_windows(pcm, vad):
+            feat, _ = pipeline(w.astype(np.float64) / 32768.0, noise=ns, alpha=0.8)
+            frames.append(feat)
+            if len(frames) >= max_windows:
+                return frames
+    return frames
 
 
 class GMMUBMClassifier:
@@ -219,7 +235,7 @@ def evaluate_model_scores(cal_k, cal_u, test_k_pred, test_k_true, test_k_scores,
     }
 
 
-def run_all_models_on_split(known_ds, cal_u_ds, test_u_ds, train_idx, cal_idx, test_idx):
+def run_all_models_on_split(known_ds, cal_u_ds, test_u_ds, train_idx, cal_idx, test_idx, ext_ubms=None):
     X_tr, y_tr = known_ds["vectors"][train_idx], known_ds["labels"][train_idx]
     X_cal = known_ds["vectors"][cal_idx]
     X_te, y_te = known_ds["vectors"][test_idx], known_ds["labels"][test_idx]
@@ -276,7 +292,7 @@ def run_all_models_on_split(known_ds, cal_u_ds, test_u_ds, train_idx, cal_idx, t
     _, tu = igmm.score_windows(test_u_ds["frames"])
     results["GMM Indep. + CMN"] = evaluate_model_scores(ck, cu, tp, y_te, tk, tu)
 
-    # 5. GMM-UBM + CMN (proposto; UBM treinado estritamente em F_tr, sem vazamento de cal/teste)
+    # 5. GMM-UBM + CMN (UBM interno de 2 locutores)
     gmm_ubm = GMMUBMClassifier(n_components=8, relevance=8.0, norm="cmn", use_deltas=True, random_state=42).fit(
         F_tr, y_tr, ubm_frames=F_tr
     )
@@ -289,7 +305,41 @@ def run_all_models_on_split(known_ds, cal_u_ds, test_u_ds, train_idx, cal_idx, t
     res_ubm["test_unknown_scores"] = tu.tolist()
     res_ubm["min_margin"] = float(tm.min())
     res_ubm["mean_margin"] = float(tm.mean())
-    results["GMM-UBM + CMN"] = res_ubm
+    results["GMM-UBM + CMN (2 loc.)"] = res_ubm
+
+    # 6 & 7. GMM-UBM com UBM externo pré-ajustado (FLEURS PT-BR): CMN seletiva em c1 e sem CMN
+    if ext_ubms:
+        for label, (norm_mode, prefit_ubm) in ext_ubms.items():
+            clf = GMMUBMClassifier(n_components=8, relevance=8.0, norm=norm_mode, use_deltas=True, random_state=42)
+            clf.ubm_ = prefit_ubm
+            clf.classes_ = sorted(set(y_tr))
+            clf.means_ = {}
+            w, mu_u, var_u = prefit_ubm.weights_, prefit_ubm.means_, prefit_ubm.covariances_
+            X_list = clf._feat(F_tr)
+            for c in clf.classes_:
+                Xc = np.vstack([x for x, lab in zip(X_list, y_tr) if lab == c])
+                gamma = prefit_ubm.predict_proba(Xc)
+                nm = gamma.sum(axis=0)
+                sm = gamma.T @ Xc
+                alpha = nm / (nm + clf.relevance)
+                clf.means_[c] = np.where(
+                    nm[:, None] > 1e-9,
+                    alpha[:, None] * (sm / np.maximum(nm[:, None], 1e-9)) + (1.0 - alpha[:, None]) * mu_u,
+                    mu_u,
+                )
+            clf._log_w = np.log(np.maximum(w, 1e-30))
+            clf._inv_var = 1.0 / np.maximum(var_u, 1e-9)
+            clf._const = -0.5 * np.sum(np.log(2.0 * np.pi * np.maximum(var_u, 1e-9)), axis=1)
+            _, ck, _ = clf.score_windows(F_cal)
+            _, cu, _ = clf.score_windows(cal_u_ds["frames"])
+            tp, tk, tm = clf.score_windows(F_te)
+            _, tu, _ = clf.score_windows(test_u_ds["frames"])
+            res_e = evaluate_model_scores(ck, cu, tp, y_te, tk, tu)
+            res_e["test_known_scores"] = tk.tolist()
+            res_e["test_unknown_scores"] = tu.tolist()
+            res_e["min_margin"] = float(tm.min())
+            res_e["mean_margin"] = float(tm.mean())
+            results[label] = res_e
 
     return results
 
@@ -340,16 +390,20 @@ def run_ablation(known_ns, cal_u_ns, test_u_ns, known_raw, cal_u_raw, test_u_raw
 def plot_figures(model_results, out_figs_dir):
     out_figs_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Curva ROC comparativa dos 5 modelos
-    plt.figure(figsize=(5.6, 4.0), dpi=300)
+    # 1. Curva ROC comparativa
+    plt.figure(figsize=(5.8, 4.1), dpi=300)
     styles = [
-        ("GMM-UBM + CMN", "#1b7837", "-", 2.3),
-        ("GMM Indep. + CMN", "#762a83", "--", 1.7),
+        ("GMM-UBM (FLEURS, CMN-c1)", "#006837", "-", 2.4),
+        ("GMM-UBM (FLEURS, sem CMN)", "#238b45", "--", 2.0),
         ("k-NN Cosseno (k=3)", "#d95f02", "-.", 1.7),
         ("Centroide Cosseno", "#7570b3", ":", 1.7),
-        ("SVM (RBF)", "#e7298a", "--", 1.4),
+        ("GMM-UBM + CMN (2 loc.)", "#2b8cbe", "-", 1.6),
+        ("SVM (RBF)", "#e7298a", "--", 1.3),
+        ("GMM Indep. + CMN", "#762a83", ":", 1.3),
     ]
     for name, color, ls, lw in styles:
+        if name not in model_results:
+            continue
         r = model_results[name]
         plt.plot(
             np.array(r["fpr"]) * 100,
@@ -364,25 +418,26 @@ def plot_figures(model_results, out_figs_dir):
     plt.ylabel("Taxa de Verdadeira Aceitação — 1 - FRR (%)")
     plt.title("Curva ROC em Conjunto Aberto (Open-Set)")
     plt.grid(True, alpha=0.3)
-    plt.legend(loc="lower right", fontsize=8, frameon=True)
+    plt.legend(loc="lower right", fontsize=7.5, frameon=True)
     plt.tight_layout()
     plt.savefig(out_figs_dir / "fig_openset_roc.png", dpi=300)
     plt.close()
 
-    # 2. Distribuição de LLR (Conhecidos vs Impostores) no GMM-UBM + CMN
-    ubm = model_results["GMM-UBM + CMN"]
+    # 2. Distribuição de LLR (Conhecidos vs Impostores) no melhor GMM-UBM
+    key = "GMM-UBM (FLEURS, CMN-c1)" if "GMM-UBM (FLEURS, CMN-c1)" in model_results else "GMM-UBM + CMN (2 loc.)"
+    ubm = model_results[key]
     k_scores = np.array(ubm["test_known_scores"])
     u_scores = np.array(ubm["test_unknown_scores"])
     tau = ubm["tau"]
 
     plt.figure(figsize=(5.6, 3.6), dpi=300)
-    bins = np.linspace(min(k_scores.min(), u_scores.min()) - 0.1, max(k_scores.max(), u_scores.max()) + 0.1, 22)
-    plt.hist(k_scores, bins=bins, alpha=0.7, color="#1b7837", label=f"Conhecidos (n={len(k_scores)})")
-    plt.hist(u_scores, bins=bins, alpha=0.7, color="#d73027", label=f"Impostores teste (n={len(u_scores)})")
+    bins = np.linspace(min(k_scores.min(), u_scores.min()) - 0.2, max(k_scores.max(), u_scores.max()) + 0.2, 24)
+    plt.hist(k_scores, bins=bins, alpha=0.72, color="#1b7837", label=f"Conhecidos teste (n={len(k_scores)})")
+    plt.hist(u_scores, bins=bins, alpha=0.72, color="#d73027", label=f"Impostores teste (n={len(u_scores)})")
     plt.axvline(tau, color="#111111", linestyle="--", linewidth=1.8, label=f"Limiar calibrado τ* = {tau:+.2f}")
-    plt.xlabel("LLR máximo por janela (GMM-UBM + CMN)")
+    plt.xlabel(f"LLR máximo por janela — {key}")
     plt.ylabel("Contagem de janelas (2 s)")
-    plt.title("Separação Open-Set: Conhecidos vs. Impostores Inéditos")
+    plt.title("Separação Open-Set com UBM Externo (FLEURS PT-BR)")
     plt.grid(True, axis="y", alpha=0.3)
     plt.legend(fontsize=8.5, frameon=True)
     plt.tight_layout()
@@ -395,6 +450,7 @@ def main():
     parser.add_argument("--audio-dir", type=Path, default=ROOT / "audio_exemplo")
     parser.add_argument("--unknown-cal", type=Path, default=ROOT / "dados/desconhecidos_cal")
     parser.add_argument("--unknown-test", type=Path, default=ROOT / "dados/desconhecidos_teste")
+    parser.add_argument("--ubm-dir", type=Path, default=ROOT / "dados/ubm_fleurs_ptbr/dev")
     parser.add_argument("--output", type=Path, default=ROOT / "docs/results/benchmark-openset.json")
     parser.add_argument("--figs-dir", type=Path, default=ROOT / "docs/artigo/figs")
     parser.add_argument("--seed", type=int, default=42)
@@ -408,9 +464,19 @@ def main():
     cal_u_raw = load_sessions_custom(args.unknown_cal, use_ns=False)
     test_u_raw = load_sessions_custom(args.unknown_test, use_ns=False)
 
+    ext_ubms = {}
+    ext_windows = 0
+    if args.ubm_dir and args.ubm_dir.exists():
+        ext_frames = load_external_ubm_frames(args.ubm_dir, max_windows=350)
+        ext_windows = len(ext_frames)
+        for label, mode in [("GMM-UBM (FLEURS, CMN-c1)", "cmn_c1"), ("GMM-UBM (FLEURS, sem CMN)", "none")]:
+            X_ubm = np.vstack([extract_gmm_features(f, mode, True) for f in ext_frames])
+            ubm_gmm = GaussianMixture(8, covariance_type="diag", reg_covar=1e-4, max_iter=200, random_state=42).fit(X_ubm)
+            ext_ubms[label] = (mode, ubm_gmm)
+
     # Split principal (seed 42)
     train_idx, cal_idx, test_idx = session_split(known_ns["labels"], known_ns["sessions"], seed=args.seed, calibration=True)
-    main_models = run_all_models_on_split(known_ns, cal_u_ns, test_u_ns, train_idx, cal_idx, test_idx)
+    main_models = run_all_models_on_split(known_ns, cal_u_ns, test_u_ns, train_idx, cal_idx, test_idx, ext_ubms=ext_ubms)
     ablation = run_ablation(known_ns, cal_u_ns, test_u_ns, known_raw, cal_u_raw, test_u_raw, train_idx, cal_idx, test_idx)
 
     # Multi-seed sobre todas as combinações de sessões dos conhecidos (média ± DP)
@@ -423,7 +489,7 @@ def main():
         if key in seen_splits:
             continue
         seen_splits.add(key)
-        res = run_all_models_on_split(known_ns, cal_u_ns, test_u_ns, tr, ca, te)
+        res = run_all_models_on_split(known_ns, cal_u_ns, test_u_ns, tr, ca, te, ext_ubms=ext_ubms)
         for m, vals in res.items():
             for k in ("closed_acc", "far", "frr", "eer"):
                 multi[m][k].append(vals[k])
@@ -445,6 +511,7 @@ def main():
             "unknown_cal_windows": int(len(cal_u_ns["labels"])),
             "unknown_test_speakers": sorted(set(test_u_ns["labels"])),
             "unknown_test_windows": int(len(test_u_ns["labels"])),
+            "external_ubm_windows": ext_windows,
         },
         "main_split_seed42": {
             "train_sessions": sorted(set(known_ns["sessions"][train_idx])),
