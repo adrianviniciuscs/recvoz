@@ -32,36 +32,65 @@ GROUPS = [
     ("noise", "Ruído / Silêncio", ROOT / "dados" / "ruido"),
 ]
 
+# Textos com ~90-105 palavras (~35-45 s de leitura natural), suficientes para 18s-30s sem faltar texto.
 PROMPTS = [
     (
         "O sol nasceu claro atrás das montanhas enquanto os pássaros começavam a cantar "
-        "no jardim. A brisa fresca atravessava as janelas abertas, trazendo o cheiro "
-        "de café recém-passado pela cozinha inteira."
+        "no jardim da casa antiga. A brisa fresca atravessava as janelas abertas, trazendo "
+        "o cheiro de café recém-passado pela cozinha inteira. Na rua ainda tranquila, um "
+        "ciclista subia devagar a ladeira de paralelepípedos, desviando das folhas secas "
+        "acumuladas junto ao meio-fio. Dentro da padaria da esquina, o padeiro organizava "
+        "as fornadas quentes de pão francês e broas de milho, cumprimentando os primeiros "
+        "vizinhos que chegavam para começar a rotina de mais uma manhã de trabalho."
     ),
     (
-        "Durante a viagem de trem pelo interior, observamos pequenas estações antigas, "
-        "pontes de ferro sobre rios tranquilos e campos verdes que mudavam de cor "
-        "conforme as nuvens passavam lentamente pelo céu."
+        "Durante a longa viagem de trem pelo interior, observamos pequenas estações "
+        "históricas, pontes de ferro sobre rios tranquilos e campos verdes que mudavam "
+        "de tonalidade conforme as nuvens passavam lentamente pelo céu. Em cada parada, "
+        "passageiros carregavam malas gastas, cestos de frutas e caixas amarradas com "
+        "barbante. O som cadenciado dos trilhos misturava-se às conversas baixas nos "
+        "vagões de madeira, enquanto o vento suave entrava pelas frestas e refrescava o "
+        "ambiente quente da tarde. Ao longe, a serra azulada anunciava que o destino "
+        "estava cada vez mais próximo."
     ),
     (
-        "A tecnologia de áudio embarcado exige equilíbrio entre precisão matemática e "
-        "baixo consumo de energia. Pequenos microcontroladores conseguem processar "
-        "sinais de voz em tempo real sem depender de servidores externos."
+        "A engenharia de áudio embarcado exige um equilíbrio cuidadoso entre precisão "
+        "matemática, robustez acústica e baixo consumo de energia. Pequenos microcontroladores "
+        "conseguem capturar sinais digitais em alta frequência, filtrar ruídos estacionários "
+        "do ambiente e extrair características espectrais da voz humana em tempo real, sem "
+        "depender de conexão com servidores externos. Quando o algoritmo respeita os limites "
+        "de memória e processamento da placa, torna-se possível construir sistemas portáteis, "
+        "privados e responsivos que operam de forma confiável mesmo em salas com ventiladores "
+        "ou conversas distantes ao fundo."
     ),
     (
-        "Na feira de domingo, as barracas exibiam frutas tropicais, queijos artesanais "
-        "e flores coloridas. Os vendedores anunciavam os preços com entusiasmo enquanto "
-        "os moradores conversavam calmamente pelas calçadas."
+        "Na feira livre de domingo, as barracas coloridas exibiam frutas tropicais, "
+        "hortaliças frescas, queijos artesanais e ramos de flores recém-colhidas. Os "
+        "vendedores anunciavam os preços com entusiasmo, oferecendo amostras de manga, "
+        "abacaxi e jabuticaba para quem passava devagar pelos corredores movimentados. "
+        "Perto da barraca de temperos, o aroma de pimenta, orégano e canela misturava-se "
+        "ao cheiro de pastel frito na hora. Famílias inteiras aproveitavam a manhã amena "
+        "para escolher ingredientes da semana e conversar calmamente com amigos encontrados "
+        "pelo caminho."
     ),
     (
-        "Quando a chuva forte chegou no fim da tarde, as luzes da cidade refletiam nas "
-        "ruas molhadas. Dentro da biblioteca silenciosa, estudantes revisavam anotações "
-        "e organizavam livros sobre a mesa de madeira."
+        "Quando a chuva forte chegou de repente no fim da tarde, as luzes dos postes e "
+        "das vitrines passaram a refletir intensamente no asfalto molhado das avenidas. "
+        "Quem caminhava pela praça correu para se abrigar sob as marquises enquanto o "
+        "vento balançava os galhos das árvores mais altas. Dentro da biblioteca silenciosa, "
+        "porém, o ritmo permanecia sereno: estudantes revisavam anotações em cadernos "
+        "abertos, folheavam capítulos técnicos e organizavam livros empilhados sobre as "
+        "grandes mesas de madeira clara, esperando a tempestade diminuir antes de voltar "
+        "para casa."
     ),
     (
-        "Antes de começar qualquer experimento em laboratório, é essencial conferir as "
-        "conexões elétricas, anotar as condições do ambiente e verificar se os sensores "
-        "estão calibrados corretamente para garantir resultados confiáveis."
+        "Antes de iniciar qualquer experimento em laboratório, é fundamental conferir todas "
+        "as conexões elétricas, anotar as condições do ambiente e verificar se os sensores "
+        "estão devidamente calibrados. Pequenos detalhes de montagem, como a distância até "
+        "o microfone ou um cabo mal encaixado, podem introduzir interferências difíceis de "
+        "corrigir depois na etapa de análise. Registrar cada sessão de forma organizada, com "
+        "nomes padronizados e observações claras, economiza horas de retrabalho e garante que "
+        "outros pesquisadores consigam reproduzir os resultados com segurança."
     ),
 ]
 
@@ -113,7 +142,11 @@ def analyze_wav(path, vad=300):
 
 
 def play_wav(path):
-    for cmd in (["paplay", str(path)], ["aplay", "-q", str(path)], ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)]):
+    for cmd in (
+        ["paplay", str(path)],
+        ["aplay", "-q", str(path)],
+        ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)],
+    ):
         if shutil.which(cmd[0]):
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
@@ -124,12 +157,14 @@ class ColetorApp(tk.Tk if tk is not None else object):
     def __init__(self):
         super().__init__()
         self.title("RecVoz — Coletor de Dataset (ESP32-S3)")
-        self.geometry("860x720")
-        self.minsize(780, 640)
+        self.geometry("940x820")
+        self.minsize(840, 720)
+        self.configure(bg="#f1f5f9")
 
         self.recording = False
         self.last_saved = None
         self.prompt_idx = 0
+        self.prompt_font_size = 13
 
         self.port_var = tk.StringVar()
         self.baud_var = tk.IntVar(value=115200)
@@ -138,132 +173,229 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.name_var = tk.StringVar(value="adrian")
         self.session_var = tk.IntVar(value=1)
         self.preview_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="Pronto para gravar.")
+        self.banner_var = tk.StringVar(value="Pronto — posicione o microfone (~20 cm) e clique em GRAVAR (ou F5)")
         self.quality_var = tk.StringVar(value="Nenhuma gravação realizada nesta sessão.")
         self.summary_var = tk.StringVar()
+        self.prompt_meta_var = tk.StringVar()
 
+        self._setup_style()
         self._build_ui()
+        self.bind("<F5>", lambda _e: self._start_record(overwrite=False))
         self._refresh_ports()
         self._on_identity_change()
         self._refresh_dataset_tree()
 
+    def _setup_style(self):
+        style = ttk.Style(self)
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+        bg = "#f1f5f9"
+        card = "#ffffff"
+        style.configure(".", background=bg, foreground="#0f172a", font=("TkDefaultFont", 10))
+        style.configure("TFrame", background=bg)
+        style.configure("Card.TLabelframe", background=card, borderwidth=1, relief="solid")
+        style.configure("Card.TLabelframe.Label", background=bg, foreground="#1e3a8a", font=("TkDefaultFont", 10, "bold"))
+        style.configure("CardInner.TFrame", background=card)
+        style.configure("CardInner.TLabel", background=card, foreground="#0f172a")
+        style.configure("Muted.TLabel", background=card, foreground="#475569", font=("TkDefaultFont", 9))
+        style.configure("CardInner.TRadiobutton", background=card, foreground="#0f172a")
+        style.configure("TButton", padding=(10, 4))
+        style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", rowheight=24)
+        style.configure("Treeview.Heading", font=("TkDefaultFont", 9, "bold"), background="#e2e8f0", foreground="#0f172a")
+
     def _build_ui(self):
-        pad = {"padx": 10, "pady": 6}
+        pad = {"padx": 12, "pady": 5}
 
-        # 1. Conexão
-        conn = ttk.LabelFrame(self, text="1. Conexão ESP32-S3 (firmware recvoz-esp)")
-        conn.pack(fill=tk.X, **pad)
+        # Banner de estado ao vivo (visível de longe para o voluntário)
+        self.banner = tk.Label(
+            self,
+            textvariable=self.banner_var,
+            bg="#e2e8f0",
+            fg="#0f172a",
+            font=("TkDefaultFont", 12, "bold"),
+            pady=10,
+            padx=14,
+            anchor=tk.W,
+        )
+        self.banner.pack(fill=tk.X)
 
-        ttk.Label(conn, text="Porta:").pack(side=tk.LEFT, padx=(8, 4), pady=6)
-        self.port_combo = ttk.Combobox(conn, textvariable=self.port_var, width=22, state="readonly")
-        self.port_combo.pack(side=tk.LEFT, padx=4, pady=6)
-        ttk.Button(conn, text="Atualizar", command=self._refresh_ports).pack(side=tk.LEFT, padx=4, pady=6)
+        # 1. Conexão e Destino (compactos em linha)
+        top_grid = ttk.Frame(self)
+        top_grid.pack(fill=tk.X, **pad)
+        top_grid.columnconfigure(0, weight=1)
+        top_grid.columnconfigure(1, weight=2)
 
-        ttk.Label(conn, text="Duração (s):").pack(side=tk.LEFT, padx=(18, 4), pady=6)
-        ttk.Spinbox(conn, from_=3, to=60, increment=3, textvariable=self.dur_var, width=5).pack(side=tk.LEFT, padx=4, pady=6)
-        for preset in (10, 18, 24):
-            ttk.Button(conn, text=f"{preset}s", width=4, command=lambda s=preset: self.dur_var.set(s)).pack(side=tk.LEFT, padx=2, pady=6)
+        conn = ttk.LabelFrame(top_grid, text="1. Conexão ESP32-S3", style="Card.TLabelframe")
+        conn.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        c_in = ttk.Frame(conn, style="CardInner.TFrame")
+        c_in.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
 
-        # 2. Grupo e Identificação
-        meta = ttk.LabelFrame(self, text="2. Destino e Locutor")
-        meta.pack(fill=tk.X, **pad)
+        r1 = ttk.Frame(c_in, style="CardInner.TFrame")
+        r1.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(r1, text="Porta:", style="CardInner.TLabel").pack(side=tk.LEFT)
+        self.port_combo = ttk.Combobox(r1, textvariable=self.port_var, width=16, state="readonly")
+        self.port_combo.pack(side=tk.LEFT, padx=6)
+        ttk.Button(r1, text="Atualizar", command=self._refresh_ports).pack(side=tk.LEFT)
 
-        grp_row = ttk.Frame(meta)
-        grp_row.pack(fill=tk.X, padx=8, pady=(6, 4))
+        r2 = ttk.Frame(c_in, style="CardInner.TFrame")
+        r2.pack(fill=tk.X)
+        ttk.Label(r2, text="Duração (s):", style="CardInner.TLabel").pack(side=tk.LEFT)
+        ttk.Spinbox(r2, from_=3, to=60, increment=3, textvariable=self.dur_var, width=4).pack(side=tk.LEFT, padx=(6, 8))
+        for preset in (10, 18, 24, 30):
+            ttk.Button(r2, text=f"{preset}s", width=4, command=lambda s=preset: self.dur_var.set(s)).pack(side=tk.LEFT, padx=2)
+
+        meta = ttk.LabelFrame(top_grid, text="2. Destino e Locutor", style="Card.TLabelframe")
+        meta.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        m_in = ttk.Frame(meta, style="CardInner.TFrame")
+        m_in.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+
+        grp_row = ttk.Frame(m_in, style="CardInner.TFrame")
+        grp_row.pack(fill=tk.X, pady=(0, 6))
         for key, label, _ in GROUPS:
             ttk.Radiobutton(
-                grp_row, text=label, value=key, variable=self.group_var, command=self._on_identity_change
-            ).pack(side=tk.LEFT, padx=(0, 14))
+                grp_row,
+                text=label,
+                value=key,
+                variable=self.group_var,
+                command=self._on_identity_change,
+                style="CardInner.TRadiobutton",
+            ).pack(side=tk.LEFT, padx=(0, 10))
 
-        id_row = ttk.Frame(meta)
-        id_row.pack(fill=tk.X, padx=8, pady=(4, 6))
-        ttk.Label(id_row, text="Nome (sem acento):").pack(side=tk.LEFT)
-        name_entry = ttk.Entry(id_row, textvariable=self.name_var, width=20)
-        name_entry.pack(side=tk.LEFT, padx=(6, 14))
+        id_row = ttk.Frame(m_in, style="CardInner.TFrame")
+        id_row.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(id_row, text="Nome:", style="CardInner.TLabel").pack(side=tk.LEFT)
+        name_entry = ttk.Entry(id_row, textvariable=self.name_var, width=18)
+        name_entry.pack(side=tk.LEFT, padx=(6, 12))
         name_entry.bind("<KeyRelease>", lambda _e: self._on_identity_change())
 
-        ttk.Label(id_row, text="Sessão s:").pack(side=tk.LEFT)
+        ttk.Label(id_row, text="Sessão s:", style="CardInner.TLabel").pack(side=tk.LEFT)
         sess_spin = ttk.Spinbox(id_row, from_=1, to=99, textvariable=self.session_var, width=4, command=self._update_preview)
-        sess_spin.pack(side=tk.LEFT, padx=(4, 10))
+        sess_spin.pack(side=tk.LEFT, padx=(4, 8))
         sess_spin.bind("<KeyRelease>", lambda _e: self._update_preview())
-        ttk.Button(id_row, text="Auto sN", command=self._auto_session).pack(side=tk.LEFT, padx=4)
+        ttk.Button(id_row, text="Auto sN", command=self._auto_session).pack(side=tk.LEFT)
 
-        ttk.Label(meta, textvariable=self.preview_var, foreground="#1a4d8f").pack(anchor=tk.W, padx=8, pady=(0, 6))
+        ttk.Label(m_in, textvariable=self.preview_var, style="CardInner.TLabel", foreground="#1d4ed8").pack(anchor=tk.W)
 
-        # 3. Teleprompter
-        prompt_box = ttk.LabelFrame(self, text="3. Texto para leitura (espere ~1 s em silêncio no início e leia normalmente)")
+        # 3. Teleprompter (grande, confortável e com textos longos)
+        prompt_box = ttk.LabelFrame(
+            self,
+            text="3. Teleprompter — espere ~1 s em silêncio no início e leia em voz natural",
+            style="Card.TLabelframe",
+        )
         prompt_box.pack(fill=tk.X, **pad)
+        p_in = ttk.Frame(prompt_box, style="CardInner.TFrame")
+        p_in.pack(fill=tk.X, padx=10, pady=8)
 
-        self.prompt_text = tk.Text(prompt_box, height=4, wrap=tk.WORD, font=("TkDefaultFont", 12), bg="#fffdf5", relief=tk.FLAT, padx=10, pady=8)
-        self.prompt_text.pack(fill=tk.X, padx=8, pady=(6, 4))
+        txt_wrap = ttk.Frame(p_in, style="CardInner.TFrame")
+        txt_wrap.pack(fill=tk.X)
+        self.prompt_text = tk.Text(
+            txt_wrap,
+            height=6,
+            wrap=tk.WORD,
+            font=("TkDefaultFont", self.prompt_font_size),
+            bg="#fffbeb",
+            fg="#1e293b",
+            relief=tk.SOLID,
+            bd=1,
+            padx=14,
+            pady=10,
+            spacing1=3,
+            spacing2=4,
+            spacing3=3,
+        )
+        p_scroll = ttk.Scrollbar(txt_wrap, orient=tk.VERTICAL, command=self.prompt_text.yview)
+        self.prompt_text.configure(yscrollcommand=p_scroll.set)
+        self.prompt_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        p_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self._set_prompt(0)
 
-        p_btns = ttk.Frame(prompt_box)
-        p_btns.pack(fill=tk.X, padx=8, pady=(0, 6))
-        ttk.Button(p_btns, text="Trocar texto", command=self._next_prompt).pack(side=tk.LEFT)
-        ttk.Label(
-            p_btns,
-            text="Dica: varie o texto e um pouco a posição entre s1, s2 e s3 do mesmo locutor.",
-            foreground="#555555",
-        ).pack(side=tk.LEFT, padx=12)
+        p_btns = ttk.Frame(p_in, style="CardInner.TFrame")
+        p_btns.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(p_btns, text="◀ Anterior", command=lambda: self._set_prompt(self.prompt_idx - 1)).pack(side=tk.LEFT)
+        ttk.Button(p_btns, text="Próximo texto ▶", command=self._next_prompt).pack(side=tk.LEFT, padx=6)
+        ttk.Button(p_btns, text="A-", width=3, command=lambda: self._change_font(-1)).pack(side=tk.LEFT, padx=(12, 2))
+        ttk.Button(p_btns, text="A+", width=3, command=lambda: self._change_font(1)).pack(side=tk.LEFT, padx=2)
+        ttk.Label(p_btns, textvariable=self.prompt_meta_var, style="Muted.TLabel").pack(side=tk.RIGHT)
 
         # 4. Controles de Gravação
-        rec_box = ttk.LabelFrame(self, text="4. Captura e Checagem Automática")
+        rec_box = ttk.LabelFrame(self, text="4. Captura e Checagem Automática", style="Card.TLabelframe")
         rec_box.pack(fill=tk.X, **pad)
+        r_in = ttk.Frame(rec_box, style="CardInner.TFrame")
+        r_in.pack(fill=tk.X, padx=10, pady=8)
 
-        btn_row = ttk.Frame(rec_box)
-        btn_row.pack(fill=tk.X, padx=8, pady=8)
+        btn_row = ttk.Frame(r_in, style="CardInner.TFrame")
+        btn_row.pack(fill=tk.X, pady=(0, 6))
 
         self.rec_btn = tk.Button(
             btn_row,
-            text="●  GRAVAR",
+            text="●  GRAVAR  (F5)",
             command=lambda: self._start_record(overwrite=False),
-            bg="#c62828",
+            bg="#dc2626",
             fg="white",
-            activebackground="#a31515",
+            activebackground="#b91c1c",
             activeforeground="white",
             font=("TkDefaultFont", 12, "bold"),
-            padx=20,
-            pady=6,
+            relief=tk.FLAT,
+            padx=22,
+            pady=7,
             cursor="hand2",
         )
         self.rec_btn.pack(side=tk.LEFT)
 
-        self.rerec_btn = ttk.Button(btn_row, text="Regravar último", command=lambda: self._start_record(overwrite=True), state=tk.DISABLED)
+        self.rerec_btn = ttk.Button(
+            btn_row, text="Regravar último", command=lambda: self._start_record(overwrite=True), state=tk.DISABLED
+        )
         self.rerec_btn.pack(side=tk.LEFT, padx=8)
 
-        self.play_btn = ttk.Button(btn_row, text="Ouvir último", command=self._play_last, state=tk.DISABLED)
+        self.play_btn = ttk.Button(btn_row, text="▶ Ouvir último", command=self._play_last, state=tk.DISABLED)
         self.play_btn.pack(side=tk.LEFT, padx=4)
 
-        self.prog = ttk.Progressbar(btn_row, mode="determinate", length=260)
+        self.prog = ttk.Progressbar(btn_row, mode="determinate", length=280)
         self.prog.pack(side=tk.RIGHT, padx=4)
 
-        ttk.Label(rec_box, textvariable=self.status_var, font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W, padx=8, pady=(0, 2))
-        self.quality_lbl = ttk.Label(rec_box, textvariable=self.quality_var, foreground="#333333")
-        self.quality_lbl.pack(anchor=tk.W, padx=8, pady=(0, 8))
+        self.quality_lbl = ttk.Label(r_in, textvariable=self.quality_var, style="CardInner.TLabel", font=("TkDefaultFont", 10, "bold"))
+        self.quality_lbl.pack(anchor=tk.W)
 
         # 5. Progresso do Dataset
-        ds_box = ttk.LabelFrame(self, text="5. Dataset Atual no Disco")
+        ds_box = ttk.LabelFrame(self, text="5. Dataset Atual no Disco", style="Card.TLabelframe")
         ds_box.pack(fill=tk.BOTH, expand=True, **pad)
+        d_in = ttk.Frame(ds_box, style="CardInner.TFrame")
+        d_in.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
 
-        top_ds = ttk.Frame(ds_box)
-        top_ds.pack(fill=tk.X, padx=8, pady=(6, 4))
-        ttk.Label(top_ds, textvariable=self.summary_var, font=("TkDefaultFont", 9, "bold")).pack(side=tk.LEFT)
+        top_ds = ttk.Frame(d_in, style="CardInner.TFrame")
+        top_ds.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(top_ds, textvariable=self.summary_var, style="CardInner.TLabel", font=("TkDefaultFont", 9, "bold")).pack(side=tk.LEFT)
         ttk.Button(top_ds, text="Recarregar lista", command=self._refresh_dataset_tree).pack(side=tk.RIGHT)
 
+        tree_wrap = ttk.Frame(d_in, style="CardInner.TFrame")
+        tree_wrap.pack(fill=tk.BOTH, expand=True)
         cols = ("grupo", "arquivo", "dur", "janelas", "ruido")
-        self.tree = ttk.Treeview(ds_box, columns=cols, show="headings", height=8)
+        self.tree = ttk.Treeview(tree_wrap, columns=cols, show="headings", height=7)
         self.tree.heading("grupo", text="Grupo")
         self.tree.heading("arquivo", text="Arquivo")
         self.tree.heading("dur", text="Duração")
         self.tree.heading("janelas", text="Janelas VAD")
         self.tree.heading("ruido", text="Auto-Ruído")
-        self.tree.column("grupo", width=140, anchor=tk.W)
-        self.tree.column("arquivo", width=330, anchor=tk.W)
-        self.tree.column("dur", width=80, anchor=tk.CENTER)
+        self.tree.column("grupo", width=155, anchor=tk.W)
+        self.tree.column("arquivo", width=360, anchor=tk.W)
+        self.tree.column("dur", width=85, anchor=tk.CENTER)
         self.tree.column("janelas", width=95, anchor=tk.CENTER)
         self.tree.column("ruido", width=95, anchor=tk.CENTER)
-        self.tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        self.tree.tag_configure("ok", foreground="#166534")
+        self.tree.tag_configure("warn", foreground="#b45309")
+
+        t_scroll = ttk.Scrollbar(tree_wrap, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=t_scroll.set)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        t_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _set_banner(self, text, bg="#e2e8f0", fg="#0f172a"):
+        self.banner_var.set(text)
+        self.banner.configure(bg=bg, fg=fg)
+
+    def _change_font(self, delta):
+        self.prompt_font_size = max(10, min(22, self.prompt_font_size + delta))
+        self.prompt_text.configure(font=("TkDefaultFont", self.prompt_font_size))
 
     def _refresh_ports(self):
         ports = find_ports()
@@ -275,10 +407,14 @@ class ColetorApp(tk.Tk if tk is not None else object):
 
     def _set_prompt(self, idx):
         self.prompt_idx = idx % len(PROMPTS)
+        txt = PROMPTS[self.prompt_idx]
+        words = len(txt.split())
+        est_sec = round(words / 2.3)
         self.prompt_text.config(state=tk.NORMAL)
         self.prompt_text.delete("1.0", tk.END)
-        self.prompt_text.insert("1.0", PROMPTS[self.prompt_idx])
+        self.prompt_text.insert("1.0", txt)
         self.prompt_text.config(state=tk.DISABLED)
+        self.prompt_meta_var.set(f"Texto {self.prompt_idx + 1}/{len(PROMPTS)}  •  {words} palavras (~{est_sec} s de leitura)")
 
     def _next_prompt(self):
         self._set_prompt(self.prompt_idx + 1)
@@ -307,16 +443,16 @@ class ColetorApp(tk.Tk if tk is not None else object):
             sess = 1
         out = build_output_path(self.group_var.get(), self.name_var.get(), sess)
         if out is None:
-            self.preview_var.set("Arquivo de saída: (informe um nome válido)")
+            self.preview_var.set("Saída: (informe um nome válido)")
         else:
             rel = out.relative_to(ROOT)
             exists_tag = "  [JÁ EXISTE]" if out.exists() else ""
-            self.preview_var.set(f"Arquivo de saída: {rel}{exists_tag}")
+            self.preview_var.set(f"Saída: {rel}{exists_tag}")
 
     def _set_busy(self, busy):
         self.recording = busy
         state = tk.DISABLED if busy else tk.NORMAL
-        self.rec_btn.config(state=state, text="GRAVANDO..." if busy else "●  GRAVAR")
+        self.rec_btn.config(state=state, text="GRAVANDO..." if busy else "●  GRAVAR  (F5)")
         self.rerec_btn.config(state=tk.DISABLED if (busy or not self.last_saved) else tk.NORMAL)
         self.play_btn.config(state=tk.DISABLED if (busy or not self.last_saved) else tk.NORMAL)
 
@@ -354,8 +490,9 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.prog["maximum"] = len(chunks)
         self.prog["value"] = 0
         self._set_busy(True)
-        self.status_var.set(f"Conectando em {port}...")
-        self.quality_var.set("Aguardando captura...")
+        self._set_banner(f"Conectando em {port}... prepare-se (1 s de silêncio no início)", bg="#fef3c7", fg="#92400e")
+        self.quality_var.set("Capturando áudio do ESP32-S3...")
+        self.quality_lbl.config(foreground="#475569")
 
         thread = threading.Thread(
             target=self._record_worker,
@@ -385,13 +522,23 @@ class ColetorApp(tk.Tk if tk is not None else object):
 
     def _on_progress(self, idx, total, sec):
         self.prog["value"] = idx - 1
-        self.status_var.set(f"[{idx}/{total}] Gravando {sec}s... FALE NORMALMENTE (olhe 'GRAVANDO' no OLED)")
+        if idx == 1:
+            self._set_banner(
+                f"● GRAVANDO [{idx}/{total}] ({sec}s) — 1 s de silêncio e comece a ler o texto!",
+                bg="#dc2626",
+                fg="#ffffff",
+            )
+        else:
+            self._set_banner(
+                f"● GRAVANDO [{idx}/{total}] ({sec}s) — CONTINUE LENDO NORMALMENTE",
+                bg="#dc2626",
+                fg="#ffffff",
+            )
 
     def _on_record_done(self, out_path, stats, group_key, overwrite):
         self.prog["value"] = self.prog["maximum"]
         self.last_saved = out_path
         self._set_busy(False)
-        self.status_var.set(f"Salvo: {out_path.relative_to(ROOT)}")
 
         warns = []
         if group_key != "noise":
@@ -404,15 +551,18 @@ class ColetorApp(tk.Tk if tk is not None else object):
 
         noise_txt = "OK" if stats["has_auto_noise"] else "sem pausa"
         base_msg = (
-            f"{stats['duration']:.1f}s | {stats['windows']} janelas válidas | "
-            f"pico={stats['peak']:.2f} | auto-ruído: {noise_txt}"
+            f"{stats['duration']:.1f}s  |  {stats['windows']} janelas válidas  |  "
+            f"pico={stats['peak']:.2f}  |  auto-ruído: {noise_txt}"
         )
+        rel = out_path.relative_to(ROOT)
         if warns:
-            self.quality_var.set(f"⚠ ATENÇÃO: {base_msg} — {', '.join(warns)}")
-            self.quality_lbl.config(foreground="#b35c00")
+            self._set_banner(f"⚠ Salvo com ressalvas: {rel}", bg="#fef3c7", fg="#92400e")
+            self.quality_var.set(f"⚠ {base_msg} — {', '.join(warns)}")
+            self.quality_lbl.config(foreground="#b45309")
         else:
-            self.quality_var.set(f"✓ OK: {base_msg}")
-            self.quality_lbl.config(foreground="#1b6e2d")
+            self._set_banner(f"✓ Gravação OK: {rel}", bg="#dcfce7", fg="#166534")
+            self.quality_var.set(f"✓ {base_msg}")
+            self.quality_lbl.config(foreground="#166534")
 
         if not overwrite:
             self._auto_session()
@@ -422,9 +572,9 @@ class ColetorApp(tk.Tk if tk is not None else object):
 
     def _on_record_error(self, exc):
         self._set_busy(False)
-        self.status_var.set("Erro na gravação.")
+        self._set_banner("✖ Erro na gravação — veja os detalhes abaixo", bg="#fee2e2", fg="#991b1b")
         self.quality_var.set(str(exc))
-        self.quality_lbl.config(foreground="#c62828")
+        self.quality_lbl.config(foreground="#b91c1c")
         messagebox.showerror("Erro ao gravar", str(exc))
 
     def _play_last(self):
@@ -445,14 +595,17 @@ class ColetorApp(tk.Tk if tk is not None else object):
             for p in sorted(folder.glob("*.wav")):
                 if p.name.endswith(".partial.wav"):
                     continue
+                tag = "ok"
                 try:
                     st = analyze_wav(p)
                     dur_s = f"{st['duration']:.1f}s"
                     win_s = str(st["windows"])
                     ns_s = "OK" if st["has_auto_noise"] else "—"
+                    if key != "noise" and (st["windows"] < 5 or not st["has_auto_noise"]):
+                        tag = "warn"
                 except Exception:
-                    dur_s, win_s, ns_s = "?", "?", "?"
-                self.tree.insert("", tk.END, values=(label, p.name, dur_s, win_s, ns_s))
+                    dur_s, win_s, ns_s, tag = "?", "?", "?", "warn"
+                self.tree.insert("", tk.END, values=(label, p.name, dur_s, win_s, ns_s), tags=(tag,))
                 m = re.match(r"^locutor_([a-zA-Z0-9]+)_s\d+\.wav$", p.name)
                 if key == "noise":
                     counts["noise"] += 1
@@ -464,9 +617,9 @@ class ColetorApp(tk.Tk if tk is not None else object):
 
         ready_known = sum(1 for n in known_sessions.values() if n >= 3)
         self.summary_var.set(
-            f"Conhecidos (>=3 sessões): {ready_known}/{len(known_sessions)}  |  "
-            f"Impostores Cal: {len(counts['cal'])} (meta 2+)  |  "
-            f"Impostores Teste: {len(counts['test'])} (meta 3+)  |  "
+            f"Conhecidos (>=3 sessões): {ready_known}/{len(known_sessions)}   |   "
+            f"Impostores Cal: {len(counts['cal'])} (meta 2+)   |   "
+            f"Impostores Teste: {len(counts['test'])} (meta 3+)   |   "
             f"Ruído: {counts['noise']}"
         )
 
