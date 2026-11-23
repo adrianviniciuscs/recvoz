@@ -153,13 +153,36 @@ def play_wav(path):
     return False
 
 
+# Paleta Gruvbox Dark
+GB = {
+    "bg0_h": "#1d2021",
+    "bg0": "#282828",
+    "bg1": "#3c3836",
+    "bg2": "#504945",
+    "bg3": "#665c54",
+    "fg0": "#fbf1c7",
+    "fg1": "#ebdbb2",
+    "fg4": "#a89984",
+    "red": "#cc241d",
+    "red_hi": "#fb4934",
+    "green": "#98971a",
+    "green_hi": "#b8bb26",
+    "yellow": "#d79921",
+    "yellow_hi": "#fabd2f",
+    "blue": "#458588",
+    "blue_hi": "#83a598",
+    "aqua": "#8ec07c",
+    "orange": "#fe8019",
+}
+
+
 class ColetorApp(tk.Tk if tk is not None else object):
     def __init__(self):
         super().__init__()
         self.title("RecVoz — Coletor de Dataset (ESP32-S3)")
         self.geometry("940x820")
         self.minsize(840, 720)
-        self.configure(bg="#f1f5f9")
+        self.configure(bg=GB["bg0"])
 
         self.recording = False
         self.last_saved = None
@@ -189,19 +212,42 @@ class ColetorApp(tk.Tk if tk is not None else object):
         style = ttk.Style(self)
         if "clam" in style.theme_names():
             style.theme_use("clam")
-        bg = "#f1f5f9"
-        card = "#ffffff"
-        style.configure(".", background=bg, foreground="#0f172a", font=("TkDefaultFont", 10))
-        style.configure("TFrame", background=bg)
-        style.configure("Card.TLabelframe", background=card, borderwidth=1, relief="solid")
-        style.configure("Card.TLabelframe.Label", background=bg, foreground="#1e3a8a", font=("TkDefaultFont", 10, "bold"))
-        style.configure("CardInner.TFrame", background=card)
-        style.configure("CardInner.TLabel", background=card, foreground="#0f172a")
-        style.configure("Muted.TLabel", background=card, foreground="#475569", font=("TkDefaultFont", 9))
-        style.configure("CardInner.TRadiobutton", background=card, foreground="#0f172a")
-        style.configure("TButton", padding=(10, 4))
-        style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", rowheight=24)
-        style.configure("Treeview.Heading", font=("TkDefaultFont", 9, "bold"), background="#e2e8f0", foreground="#0f172a")
+
+        self.option_add("*TCombobox*Listbox.background", GB["bg1"])
+        self.option_add("*TCombobox*Listbox.foreground", GB["fg1"])
+        self.option_add("*TCombobox*Listbox.selectBackground", GB["bg2"])
+        self.option_add("*TCombobox*Listbox.selectForeground", GB["yellow_hi"])
+
+        style.configure(".", background=GB["bg0"], foreground=GB["fg1"], font=("TkDefaultFont", 10))
+        style.configure("TFrame", background=GB["bg0"])
+        style.configure("Card.TLabelframe", background=GB["bg1"], bordercolor=GB["bg2"], lightcolor=GB["bg2"], darkcolor=GB["bg2"], borderwidth=1, relief="solid")
+        style.configure("Card.TLabelframe.Label", background=GB["bg0"], foreground=GB["yellow_hi"], font=("TkDefaultFont", 10, "bold"))
+        style.configure("CardInner.TFrame", background=GB["bg1"])
+        style.configure("CardInner.TLabel", background=GB["bg1"], foreground=GB["fg1"])
+        style.configure("Muted.TLabel", background=GB["bg1"], foreground=GB["fg4"], font=("TkDefaultFont", 9))
+        style.configure("CardInner.TRadiobutton", background=GB["bg1"], foreground=GB["fg1"], indicatorcolor=GB["bg0_h"])
+        style.map(
+            "CardInner.TRadiobutton",
+            background=[("active", GB["bg1"])],
+            foreground=[("active", GB["yellow_hi"])],
+            indicatorcolor=[("selected", GB["yellow_hi"])],
+        )
+        style.configure("TButton", background=GB["bg2"], foreground=GB["fg1"], bordercolor=GB["bg3"], padding=(10, 4))
+        style.map(
+            "TButton",
+            background=[("active", GB["bg3"]), ("disabled", GB["bg1"])],
+            foreground=[("active", GB["fg0"]), ("disabled", GB["fg4"])],
+        )
+        style.configure("TEntry", fieldbackground=GB["bg0_h"], foreground=GB["fg0"], insertcolor=GB["yellow_hi"], bordercolor=GB["bg3"])
+        style.configure("TSpinbox", fieldbackground=GB["bg0_h"], foreground=GB["fg0"], arrowcolor=GB["fg1"], background=GB["bg2"], bordercolor=GB["bg3"])
+        style.configure("TCombobox", fieldbackground=GB["bg0_h"], foreground=GB["fg0"], arrowcolor=GB["fg1"], background=GB["bg2"], bordercolor=GB["bg3"])
+        style.map("TCombobox", fieldbackground=[("readonly", GB["bg0_h"])], foreground=[("readonly", GB["fg0"])])
+        style.configure("Horizontal.TProgressbar", troughcolor=GB["bg0_h"], background=GB["green_hi"], bordercolor=GB["bg2"], lightcolor=GB["green_hi"], darkcolor=GB["green"])
+        style.configure("Vertical.TScrollbar", background=GB["bg2"], troughcolor=GB["bg0_h"], arrowcolor=GB["fg1"], bordercolor=GB["bg1"])
+        style.configure("Treeview", background=GB["bg0_h"], fieldbackground=GB["bg0_h"], foreground=GB["fg1"], bordercolor=GB["bg2"], rowheight=24)
+        style.map("Treeview", background=[("selected", GB["bg2"])], foreground=[("selected", GB["fg0"])])
+        style.configure("Treeview.Heading", font=("TkDefaultFont", 9, "bold"), background=GB["bg2"], foreground=GB["yellow_hi"], relief="flat")
+        style.map("Treeview.Heading", background=[("active", GB["bg3"])])
 
     def _build_ui(self):
         pad = {"padx": 12, "pady": 5}
@@ -210,8 +256,8 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.banner = tk.Label(
             self,
             textvariable=self.banner_var,
-            bg="#e2e8f0",
-            fg="#0f172a",
+            bg=GB["bg1"],
+            fg=GB["fg0"],
             font=("TkDefaultFont", 12, "bold"),
             pady=10,
             padx=14,
@@ -274,7 +320,7 @@ class ColetorApp(tk.Tk if tk is not None else object):
         sess_spin.bind("<KeyRelease>", lambda _e: self._update_preview())
         ttk.Button(id_row, text="Auto sN", command=self._auto_session).pack(side=tk.LEFT)
 
-        ttk.Label(m_in, textvariable=self.preview_var, style="CardInner.TLabel", foreground="#1d4ed8").pack(anchor=tk.W)
+        ttk.Label(m_in, textvariable=self.preview_var, style="CardInner.TLabel", foreground=GB["aqua"]).pack(anchor=tk.W)
 
         # 3. Teleprompter (grande, confortável e com textos longos)
         prompt_box = ttk.LabelFrame(
@@ -293,10 +339,15 @@ class ColetorApp(tk.Tk if tk is not None else object):
             height=6,
             wrap=tk.WORD,
             font=("TkDefaultFont", self.prompt_font_size),
-            bg="#fffbeb",
-            fg="#1e293b",
-            relief=tk.SOLID,
-            bd=1,
+            bg=GB["bg0_h"],
+            fg=GB["fg0"],
+            insertbackground=GB["yellow_hi"],
+            selectbackground=GB["bg2"],
+            selectforeground=GB["fg0"],
+            highlightbackground=GB["bg2"],
+            highlightcolor=GB["yellow_hi"],
+            highlightthickness=1,
+            relief=tk.FLAT,
             padx=14,
             pady=10,
             spacing1=3,
@@ -330,10 +381,11 @@ class ColetorApp(tk.Tk if tk is not None else object):
             btn_row,
             text="●  GRAVAR  (F5)",
             command=lambda: self._start_record(overwrite=False),
-            bg="#dc2626",
-            fg="white",
-            activebackground="#b91c1c",
-            activeforeground="white",
+            bg=GB["red"],
+            fg=GB["fg0"],
+            activebackground=GB["red_hi"],
+            activeforeground=GB["fg0"],
+            disabledforeground=GB["fg4"],
             font=("TkDefaultFont", 12, "bold"),
             relief=tk.FLAT,
             padx=22,
@@ -381,8 +433,8 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.tree.column("dur", width=85, anchor=tk.CENTER)
         self.tree.column("janelas", width=95, anchor=tk.CENTER)
         self.tree.column("ruido", width=95, anchor=tk.CENTER)
-        self.tree.tag_configure("ok", foreground="#166534")
-        self.tree.tag_configure("warn", foreground="#b45309")
+        self.tree.tag_configure("ok", foreground=GB["green_hi"])
+        self.tree.tag_configure("warn", foreground=GB["orange"])
 
         t_scroll = ttk.Scrollbar(tree_wrap, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=t_scroll.set)
@@ -490,9 +542,9 @@ class ColetorApp(tk.Tk if tk is not None else object):
         self.prog["maximum"] = len(chunks)
         self.prog["value"] = 0
         self._set_busy(True)
-        self._set_banner(f"Conectando em {port}... prepare-se (1 s de silêncio no início)", bg="#fef3c7", fg="#92400e")
+        self._set_banner(f"Conectando em {port}... prepare-se (1 s de silêncio no início)", bg=GB["yellow"], fg=GB["bg0_h"])
         self.quality_var.set("Capturando áudio do ESP32-S3...")
-        self.quality_lbl.config(foreground="#475569")
+        self.quality_lbl.config(foreground=GB["fg4"])
 
         thread = threading.Thread(
             target=self._record_worker,
@@ -525,14 +577,14 @@ class ColetorApp(tk.Tk if tk is not None else object):
         if idx == 1:
             self._set_banner(
                 f"● GRAVANDO [{idx}/{total}] ({sec}s) — 1 s de silêncio e comece a ler o texto!",
-                bg="#dc2626",
-                fg="#ffffff",
+                bg=GB["red"],
+                fg=GB["fg0"],
             )
         else:
             self._set_banner(
                 f"● GRAVANDO [{idx}/{total}] ({sec}s) — CONTINUE LENDO NORMALMENTE",
-                bg="#dc2626",
-                fg="#ffffff",
+                bg=GB["red"],
+                fg=GB["fg0"],
             )
 
     def _on_record_done(self, out_path, stats, group_key, overwrite):
@@ -556,13 +608,13 @@ class ColetorApp(tk.Tk if tk is not None else object):
         )
         rel = out_path.relative_to(ROOT)
         if warns:
-            self._set_banner(f"⚠ Salvo com ressalvas: {rel}", bg="#fef3c7", fg="#92400e")
+            self._set_banner(f"⚠ Salvo com ressalvas: {rel}", bg=GB["yellow"], fg=GB["bg0_h"])
             self.quality_var.set(f"⚠ {base_msg} — {', '.join(warns)}")
-            self.quality_lbl.config(foreground="#b45309")
+            self.quality_lbl.config(foreground=GB["orange"])
         else:
-            self._set_banner(f"✓ Gravação OK: {rel}", bg="#dcfce7", fg="#166534")
+            self._set_banner(f"✓ Gravação OK: {rel}", bg=GB["green"], fg=GB["fg0"])
             self.quality_var.set(f"✓ {base_msg}")
-            self.quality_lbl.config(foreground="#166534")
+            self.quality_lbl.config(foreground=GB["green_hi"])
 
         if not overwrite:
             self._auto_session()
@@ -572,9 +624,9 @@ class ColetorApp(tk.Tk if tk is not None else object):
 
     def _on_record_error(self, exc):
         self._set_busy(False)
-        self._set_banner("✖ Erro na gravação — veja os detalhes abaixo", bg="#fee2e2", fg="#991b1b")
+        self._set_banner("✖ Erro na gravação — veja os detalhes abaixo", bg=GB["red"], fg=GB["fg0"])
         self.quality_var.set(str(exc))
-        self.quality_lbl.config(foreground="#b91c1c")
+        self.quality_lbl.config(foreground=GB["red_hi"])
         messagebox.showerror("Erro ao gravar", str(exc))
 
     def _play_last(self):
