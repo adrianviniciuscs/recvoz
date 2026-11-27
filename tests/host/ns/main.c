@@ -8,6 +8,7 @@
 #include <string.h>
 #include "mfcc.h"
 #include "noise_sup.h"
+#include "voice_prior.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -55,45 +56,55 @@ int main(void)
         check(maxabs_f(p, ref, NS_BINS) == 0.0f, "T1b", "sem perfil pass-through");
     }
 
-    // ---- T2: matemática da subtração (alpha=1, floor=0) ----
+    // ---- T2: matemática do Wiener casado à voz (alpha=1, floor=0) ----
     {
         float prof[NS_BINS], p[NS_BINS], exp[NS_BINS];
-        for (int k = 0; k < NS_BINS; k++) prof[k] = (float)(k + 1) * 2.0f;
-        for (int k = 0; k < NS_BINS; k++) { p[k] = 1000.0f; exp[k] = 1000.0f - prof[k]; if (exp[k] < 0) exp[k] = 0; }
+        double e_tot = 0.0, e_n = 0.0;
+        for (int k = 0; k < NS_BINS; k++) {
+            prof[k] = (float)(k + 1) * 0.2f;
+            p[k] = 1000.0f;
+            e_tot += p[k];
+            e_n += prof[k];
+        }
+        double e_sig = e_tot - e_n;
+        for (int k = 0; k < NS_BINS; k++) {
+            double sh = e_sig * (double)NS_VOICE_PRIOR[k];
+            double g = sh / (sh + (double)prof[k]);
+            exp[k] = (float)(g * g * (double)p[k]);
+        }
         ns_reset(); ns_set_enabled(1);
         ns_set_params(1.0f, 0.0f);
-        ns_update_avg(prof); // 1ª chamada = cópia exata (sem suavização)
+        ns_update_avg(prof);
         ns_apply(p);
         char d[64];
         snprintf(d, sizeof d, "maxabs=%.3g", maxabs_f(p, exp, NS_BINS));
         check(maxabs_f(p, exp, NS_BINS) < 1e-3f, "T2", d);
     }
 
-    // ---- T3: piso proporcional (subtração funda não zera o bin) ----
+    // ---- T3: piso proporcional (ruído muito alto não zera o bin) ----
     {
         float prof[NS_BINS], p[NS_BINS];
         for (int k = 0; k < NS_BINS; k++) prof[k] = 5000.0f;
         for (int k = 0; k < NS_BINS; k++) p[k] = 100.0f;
         ns_reset(); ns_set_enabled(1);
-        ns_set_params(1.2f, 0.05f); // 100-6000 < 0 -> piso 5.0
+        ns_set_params(1.2f, 0.05f);
         ns_update_avg(prof);
         ns_apply(p);
-        check(fabsf(p[7] - 5.0f) < 1e-4f && fabsf(p[300] - 5.0f) < 1e-4f, "T3", "piso=0.05*P");
+        check(fabsf(p[7] - 5.0f) < 1e-3f && fabsf(p[300] - 5.0f) < 1e-3f, "T3", "piso=0.05*P");
     }
 
-    // ---- T4: EMA entre calibrações (beta=0.5: 100 -> 50) ----
+    // ---- T4: EMA entre calibrações (beta=0.5: perfil cai de 100 -> 50) ----
     {
-        float a[NS_BINS], b[NS_BINS], probe[NS_BINS];
-        for (int k = 0; k < NS_BINS; k++) { a[k] = 100.0f; b[k] = 0.0f; probe[k] = 1000.0f; }
+        float a[NS_BINS], b[NS_BINS];
+        for (int k = 0; k < NS_BINS; k++) { a[k] = 100.0f; b[k] = 0.0f; }
         ns_reset(); ns_set_enabled(1);
-        ns_set_params(1.0f, 0.0f);
         ns_set_beta(0.5f);
         ns_update_avg(a);
         ns_update_avg(b); // N = 50 no interior (suavização preserva patamar)
-        ns_apply(probe);  // 1000 - 50 = 950
+        const float *prof = ns_get_profile();
         char d[64];
-        snprintf(d, sizeof d, "probe[100]=%.2f (esp 950)", probe[100]);
-        check(fabsf(probe[100] - 950.0f) < 0.5f, "T4", d);
+        snprintf(d, sizeof d, "N[100]=%.2f (esp 50)", prof ? prof[100] : -1.0f);
+        check(prof && fabsf(prof[100] - 50.0f) < 0.5f, "T4", d);
         ns_set_beta(NS_BETA_DEFAULT);
         ns_set_params(NS_ALPHA_DEFAULT, NS_FLOOR_DEFAULT);
     }

@@ -49,11 +49,11 @@
     "test_windows": 10
   },
   "open_set": {
-    "tau": 0.013001812886535125,
-    "calibration_balanced_error": 0.2763157894736842,
-    "false_accept_rate": 0.08823529411764706,
-    "false_reject_rate": 0.8,
-    "known_identification_accuracy": 0.2,
+    "tau": 0.015132966567589334,
+    "calibration_balanced_error": 0.3256578947368421,
+    "false_accept_rate": 0.6470588235294118,
+    "false_reject_rate": 0.1,
+    "known_identification_accuracy": 0.9,
     "known_test_windows": 10,
     "unknown_test_windows": 34,
     "train_sessions": [

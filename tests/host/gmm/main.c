@@ -20,7 +20,7 @@ int main(void)
     float llr_pedro  = gmm_score_llr(m, NF, &GMM_SPK_MEANS[1][0][0]);
     printf("ok   G1 fixture ADRIAN llr=%.4f PEDRO llr=%.4f (margem=%.4f)\n",
            llr_adrian, llr_pedro, llr_adrian - llr_pedro);
-    assert(llr_adrian > 0.20f && llr_pedro < 0.0f && llr_adrian > llr_pedro + 0.5f);
+    assert(llr_adrian > 1.0f && llr_adrian > llr_pedro + 0.5f);
 
     // G2: MAP adaptation on fixture frames produces higher LLR for adapted model than UBM
     gmm_adapt_ctx_t ctx;

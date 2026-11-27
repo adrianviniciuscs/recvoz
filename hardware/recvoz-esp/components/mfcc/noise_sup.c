@@ -1,6 +1,7 @@
 #include <math.h>
 #include <string.h>
 #include "noise_sup.h"
+#include "voice_prior.h"
 
 #define NS_ANCHOR_DIM 39
 
@@ -74,11 +75,21 @@ void ns_apply(float *pow513)
 {
     if (!pow513 || !s_enabled || !s_ready) return;
     float a = s_alpha, fl = s_floor;
+    double e_tot = 0.0, e_n = 0.0;
     for (int k = 0; k < NS_BINS; k++) {
-        float p = pow513[k];
-        float sub = p - a * s_N[k];
-        float mn = fl * p;
-        pow513[k] = sub > mn ? sub : mn;
+        e_tot += (double)pow513[k];
+        e_n += (double)s_N[k];
+    }
+    if (e_n <= 0.0) return; // ruído zero = pass-through bit-exato
+    double e_sig = e_tot - e_n;
+    if (e_sig < 0.05 * e_n) e_sig = 0.05 * e_n;
+    for (int k = 0; k < NS_BINS; k++) {
+        double s_hat = e_sig * (double)NS_VOICE_PRIOR[k];
+        double denom = s_hat + (double)a * (double)s_N[k];
+        double g = (denom > 1e-12) ? (s_hat / denom) : 0.0;
+        double g2 = g * g;
+        if (g2 < (double)fl) g2 = (double)fl;
+        pow513[k] = (float)(g2 * (double)pow513[k]);
     }
 }
 

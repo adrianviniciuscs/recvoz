@@ -3,10 +3,10 @@
 Protótipo de identificação de locutor em conjunto aberto (*open-set*) com
 experimentos em Python e execução local no ESP32-S3, microfone INMP441 e
 display SSD1306. O firmware captura voz com VAD passa-banda adaptativo, aplica
-supressão espectral controlada (Berouti) com veto de ruído por modulação
-articulatória, extrai MFCC + Δ com CMN por janela e classifica via **GMM-UBM**
-(com adaptação MAP incremental e persistência em NVS; $k$-NN mantido para
-compatibilidade e comparação).
+filtro de Wiener espectral casado à voz com veto de ruído por modulação
+articulatória, extrai MFCC + Δ com CMN seletiva em $c_1$ e classifica via
+**GMM-UBM** com UBM externo (Google FLEURS PT-BR), adaptação MAP incremental e
+persistência em NVS.
 
 ## Começar
 

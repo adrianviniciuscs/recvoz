@@ -21,19 +21,14 @@ float ns_noise_dist(const float *mean39);
 extern "C" {
 #endif
 
-/** Supressão espectral de ruído estacionário (subtração em potência).
+/** Supressão espectral de ruído estacionário via Filtro de Wiener Casado à Voz.
  *
  *  Ideia: enquanto o VAD diz "silêncio", estima o espectro médio do ruído
- *  N[k]; na voz, subtrai: P_limpo[k] = max(P[k] - alpha*N[k], floor*P[k]).
- *  Entra entre `frame_power()` e `mel_apply()` do mfcc — antes do mel, onde
- *  a fase já foi descartada e a conta é 513 sub+max por frame.
- *
- *  Método = Berouti clássico (1979), na mão, só libc+libm, sem esp-dsp:
- *  - oversubtração `alpha` 1.0–2.0 (padrão 1.2) compensa sub-estimação;
- *  - piso proporcional `floor` (padrão 0.05 = −13 dB) evita "ruído musical"
- *    (bins zerados que piscam entre frames);
- *  - perfil N[k] com média móvel exponencial (beta, padrão 0.3 entre
- *    calibrações) + suavização de 3 bins em frequência.
+ *  N[k]; na voz, aplica um ganho suave de Wiener casado ao prior espectral
+ *  normalizado de fala humana S_voz[k] (FLEURS PT-BR, 513 bins em Flash):
+ *    H[k] = max( (E_sig * S_voz[k]) / (E_sig * S_voz[k] + alpha * N[k]), sqrt(floor) )
+ *    P_limpo[k] = H[k]^2 * P[k]
+ *  Entra entre `frame_power()` e `mel_apply()` do mfcc, sem ruído musical.
  *
  *  Limites honestos: resolve ruído ESTACIONÁRIO (hum, hiss, ventilador).
  *  Não resolve voz concorrente, batida, nem reverb. Se o ruído dispara o

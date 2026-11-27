@@ -11,6 +11,7 @@ import librosa
 import numpy as np
 import soundfile as sf
 from scipy import signal
+from .voice_prior import VOICE_PRIOR
 
 TARGET_SR = 16000
 VOICE_LOW, VOICE_HIGH = 80, 8000
@@ -68,10 +69,17 @@ def pipeline(y, noise=None, alpha=0.8, floor=0.05):
     yf = bandpass(y)
     p = power(yf)
     if noise is not None:
-        noise = np.asarray(noise)
+        noise = np.asarray(noise, dtype=np.float64)
         if noise.shape != (513,) or not np.isfinite(noise).all() or (noise < 0).any():
             raise ValueError("Perfil de ruído inválido")
-        p = np.maximum(p - alpha * noise[:, None], floor * p)
+        e_n = float(noise.sum())
+        if e_n > 0.0:
+            e_sig = np.maximum(p.sum(axis=0) - e_n, 0.05 * e_n)
+            s_hat = VOICE_PRIOR[:, None] * e_sig[None, :]
+            denom = s_hat + alpha * noise[:, None]
+            g = np.divide(s_hat, denom, out=np.zeros_like(s_hat), where=denom > 1e-12)
+            g2 = np.maximum(g * g, floor)
+            p = g2 * p
     mel = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=128) @ p
     db = 10 * np.log10(np.maximum(mel, 1e-10))
     db = np.maximum(db, db.max(axis=0, keepdims=True) - 80)

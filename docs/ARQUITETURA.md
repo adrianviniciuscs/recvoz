@@ -3,7 +3,7 @@
 ## Fluxo embarcado
 
 ```text
-INMP441 → audio_in → capture/VAD → MFCC/Berouti → veto mod → CMN → GMM-UBM (speaker_db) → recognition → OLED
+INMP441 → audio_in → capture/VAD → MFCC/Wiener → veto mod → CMN-c1 → GMM-UBM (speaker_db) → recognition → OLED
                         ↑                                               ↑
              tarefa principal ←─────────────── fila ←──────────── console serial
 ```

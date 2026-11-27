@@ -27,14 +27,14 @@ Veja [session-holdout.json](results/session-holdout.json), [open-set.json](resul
 - **Impostores de calibração (`dados/desconhecidos_cal/`):** `U1` e `U2` (6 sessões, 38 janelas).
 - **Impostores de teste (`dados/desconhecidos_teste/`):** `U3` e `U4` (6 sessões, 34 janelas).
 - **Identificação fechada (seed 42):** **10/10 (100%)** em `S1/s3` e `S2/s3`.
-- **Open-set (10 splits únicos de sessão via `tools/benchmark_openset.py`):**
-  - **GMM-UBM (UBM externo FLEURS PT-BR, CMN-$c_1$):** Acc s42 **100%** (margem `+1,73`), **EER 10 splits: `37,7 ± 10,6%`** *(menor EER médio)*
-  - $k$-NN Cosseno ($k=3$): Acc s42 100%, FRR s42 80,0%, EER 10 splits: `38,7 ± 15,3%`
-  - GMM-UBM (UBM externo FLEURS PT-BR, sem CMN): Acc s42 100%, EER 10 splits: `38,9 ± 9,6%`
-  - Centroide Cosseno: Acc s42 100%, EER 10 splits: `42,6 ± 17,2%`
-  - SVM (RBF): Acc s42 90,0%, EER 10 splits: `46,1 ± 11,7%`
-  - GMM-UBM + CMN (UBM interno, 2 loc.): Acc s42 80,0%, EER 10 splits: `46,8 ± 18,1%`
-  - GMM Indep. + CMN: Acc s42 80,0%, EER 10 splits: `52,1 ± 16,1%`
+- **Open-set (10 splits únicos de sessão via `tools/benchmark_openset.py`, com filtro de Wiener casado à voz):**
+  - **GMM-UBM (UBM externo FLEURS PT-BR, sem CMN):** Acc 10 splits **100,0%**, **EER 10 splits: `25,8 ± 8,7%`** *(menor EER médio)*
+  - $k$-NN Cosseno ($k=3$): Acc 10 splits 94,1%, FRR 10 splits 44,2%, EER 10 splits: `30,0 ± 9,5%`
+  - **GMM-UBM (UBM externo FLEURS PT-BR, CMN-$c_1$):** Acc 10 splits **100,0%**, **FRR 10 splits: `7,7 ± 5,2%`**, EER 10 splits: `30,2 ± 9,8%`
+  - Centroide Cosseno: Acc 10 splits 94,4%, EER 10 splits: `31,6 ± 10,9%`
+  - SVM (RBF): Acc 10 splits 77,5%, EER 10 splits: `44,9 ± 10,8%`
+  - GMM Indep. + CMN: Acc 10 splits 100,0%, EER 10 splits: `46,5 ± 11,6%`
+  - GMM-UBM + CMN (UBM interno, 2 loc.): Acc 10 splits 97,8%, EER 10 splits: `51,8 ± 17,0%`
 
 Com o UBM externo treinado em 350 janelas (44.100 frames) do corpus público
 *Google FLEURS PT-BR* e CMN seletiva em $c_1$, o GMM-UBM atinge o menor EER
