@@ -30,9 +30,10 @@ def C(value):
 
 def generate(staging, pcm, dataset, ubm_frames=None):
     mfcc_dir = staging / "hardware/recvoz-esp/components/mfcc"
+    gmm_dir = staging / "hardware/recvoz-esp/components/gmm_ubm/include"
     db_dir = staging / "hardware/recvoz-esp/components/speaker_db"
     test_dir = staging / "tests/fixtures"
-    for d in (mfcc_dir, db_dir, test_dir):
+    for d in (mfcc_dir, gmm_dir, db_dir, test_dir):
         d.mkdir(parents=True)
     # --- 1. tabelas fixas ---
     nyq = TARGET_SR / 2.0
@@ -143,7 +144,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
         alpha = nk / (nk + r_map)
         spk_means.append(alpha[:, None] * ek + (1.0 - alpha[:, None]) * ubm.means_)
 
-    with (db_dir / 'gmm_default.h').open('w') as f:
+    with (gmm_dir / 'gmm_default.h').open('w') as f:
         src_tag = 'FLEURS PT-BR' if ubm_frames is not None else 'local'
         f.write(f'// GERADO por tools/export_mfcc.py — GMM-UBM (M=8, D=24, CMN-c1, UBM={src_tag}).\n#pragma once\n')
         f.write('#define GMM_M 8\n#define GMM_D 24\n#define GMM_R 8.0f\n')

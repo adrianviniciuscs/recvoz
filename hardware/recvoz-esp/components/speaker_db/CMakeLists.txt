@@ -1,6 +1,6 @@
 idf_component_register(
-    SRCS "speaker_db.c" "gmm_ubm.c"
+    SRCS "speaker_db.c"
     INCLUDE_DIRS "include"
-    REQUIRES nvs_flash
+    REQUIRES nvs_flash gmm_ubm
     PRIV_REQUIRES knn
 )

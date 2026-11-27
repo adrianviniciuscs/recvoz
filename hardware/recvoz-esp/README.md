@@ -8,9 +8,10 @@ resultado no OLED e permite matrícula em NVS.
 | Componente | Responsabilidade |
 |---|---|
 | `audio_in` | I2S INMP441, PCM mono 16 kHz e DC blocker contínuo |
-| `mfcc` | DSP portátil, supressão espectral de Berouti e métrica `mod` |
+| `mfcc` | DSP portátil, filtro de Wiener casado à voz e métrica `mod` |
+| `gmm_ubm` | GMM-UBM diagonal portátil, CMN-$c_1$, LLR e adaptação MAP |
 | `knn` | Distância cosseno, voto ponderado e rejeição (legado/comparação) |
-| `speaker_db` | UBM + GMM-UBM + adaptação MAP incremental, base de fábrica e NVS |
+| `speaker_db` | Base de fábrica, cadastros NVS e despacho para `gmm_ubm`/`knn` |
 | `recvoz_display` | SSD1306: estado, nome e placar |
 | `main/capture.c` | VAD passa-banda adaptativo e janela de voz |
 | `main/console.c` | Fila de comandos (inclui `grab` para coleta via `tools/grab_esp.py`) |
