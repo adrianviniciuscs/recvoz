@@ -6,7 +6,7 @@
 #include "gmm_default.h"
 
 #define NF 126
-#define DIM 39
+#define DIM 51
 
 int main(void)
 {

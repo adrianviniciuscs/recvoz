@@ -5,7 +5,7 @@ extern "C" {
 #endif
 
 #define GMM_UBM_M 8
-#define GMM_UBM_D 24
+#define GMM_UBM_D 32
 
 typedef struct {
     double nk[GMM_UBM_M];

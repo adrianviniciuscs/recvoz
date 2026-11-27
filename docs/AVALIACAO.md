@@ -27,14 +27,14 @@ Veja [session-holdout.json](results/session-holdout.json), [open-set.json](resul
 - **Impostores de calibração (`dados/desconhecidos_cal/`):** `U1` e `U2` (6 sessões, 38 janelas).
 - **Impostores de teste (`dados/desconhecidos_teste/`):** `U3` e `U4` (6 sessões, 34 janelas).
 - **Identificação fechada (seed 42):** **10/10 (100%)** em `S1/s3` e `S2/s3`.
-- **Open-set (10 splits únicos de sessão via `tools/benchmark_openset.py`, com filtro de Wiener casado à voz, banco Mel 40 e Frame-VAD 70%):**
-  - **GMM-UBM (UBM externo FLEURS PT-BR, sem CMN):** Acc **100,0%**, AUC `84,3 ± 5,3%`, **EER: `20,8 ± 7,7%`** *(menor EER médio)*
-  - **GMM-UBM (UBM externo FLEURS PT-BR, CMN-$c_1$):** Acc **100,0%**, **AUC: `84,6 ± 4,4%`** *(maior AUC)*, **EER: `21,8 ± 3,6%`** *(menor variância)*
-  - $k$-NN Cosseno ($k=3$): Acc 97,8%, AUC `79,4 ± 8,1%`, EER `21,3 ± 5,9%`
-  - Centroide Cosseno: Acc 98,9%, AUC `75,8 ± 8,4%`, EER `25,7 ± 9,5%`
-  - GMM Indep. + CMN: Acc 97,9%, AUC `77,4 ± 7,5%`, EER `28,7 ± 8,8%`
-  - SVM (RBF): Acc 84,4%, AUC `64,1 ± 8,6%`, EER `43,7 ± 10,7%`
-  - GMM-UBM + CMN (UBM interno, 2 loc.): Acc 96,7%, AUC `56,6 ± 17,4%`, EER `44,7 ± 15,7%`
+- **Open-set (10 splits únicos de sessão via `tools/benchmark_openset.py`, com filtro de Wiener casado à voz, banco Mel HTK 40, 17 MFCCs / $D=32$ e Frame-VAD 70%):**
+  - **GMM-UBM (UBM externo FLEURS PT-BR, CMN-$c_1$):** Acc **100,0%**, **AUC: `95,5 ± 2,7%`** *(maior AUC)*, **FAR: `6,8 ± 5,3%`**, **EER: `9,4 ± 6,0%`** *(menor EER)*
+  - **GMM-UBM (UBM externo FLEURS PT-BR, sem CMN):** Acc **100,0%**, AUC `93,1 ± 3,3%`, FAR `11,8%`, EER `12,4 ± 7,5%`
+  - Centroide Cosseno: Acc 98,9%, AUC `81,7 ± 7,4%`, EER `24,6 ± 9,4%`
+  - $k$-NN Cosseno ($k=3$): Acc 97,8%, AUC `79,2 ± 11,3%`, EER `31,8 ± 10,4%`
+  - SVM (RBF): Acc 76,4%, AUC `69,1 ± 14,6%`, EER `35,6 ± 14,7%`
+  - GMM Indep. + CMN: Acc 96,8%, AUC `66,2 ± 8,8%`, EER `40,7 ± 12,8%`
+  - GMM-UBM + CMN (UBM interno, 2 loc.): Acc 96,7%, AUC `47,1 ± 14,2%`, EER `52,7 ± 11,3%`
 
 Com o UBM externo treinado em 350 janelas (44.100 frames) do corpus público
 *Google FLEURS PT-BR* e CMN seletiva em $c_1$, o GMM-UBM atinge o menor EER

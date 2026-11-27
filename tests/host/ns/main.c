@@ -16,7 +16,7 @@
 
 #define N 32000
 #define NF 126
-#define DIM 39
+#define DIM MFCC_DIM
 #define NCAL 8192
 
 static int fails;

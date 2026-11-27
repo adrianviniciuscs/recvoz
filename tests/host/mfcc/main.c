@@ -8,7 +8,7 @@
 
 #define N 32000
 #define NF 126
-#define DIM 39
+#define DIM MFCC_DIM
 
 static void *load(const char *p, size_t n) {
     FILE *f = fopen(p, "rb");
@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
     // por bloco
     for (int b = 0; b < 3; b++) {
         const char *n = b == 0 ? "mfcc " : b == 1 ? "delta " : "delta2";
-        printf("  %s maxabs=%.3g\n", n, maxabs_f(out + b*13*NF, exp_m + b*13*NF, 13*NF, NULL));
+        printf("  %s maxabs=%.3g\n", n, maxabs_f(out + b*MFCC_N_MFCC*NF, exp_m + b*MFCC_N_MFCC*NF, MFCC_N_MFCC*NF, NULL));
     }
 
     // 3. vetor médio + cosseno (o que o k-NN usa)

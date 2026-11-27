@@ -50,14 +50,16 @@ int gmm_cmn24_window(const float *m39xT, int n_frames, float *out_Tx24)
     if (kept <= 0) return 0;
     float mu_c1 = (float)(s_c1 / kept);
 
+    const int n_stat = GMM_UBM_D / 2;   // 16 (c1..c16)
+    const int d1_off = n_stat + 1;      // 17 (início do bloco Δc0..Δc16)
     int out_i = 0;
     for (int t = 0; t < n_frames; t++) {
         if (use_mask && !keep[t]) continue;
         out_Tx24[out_i * GMM_UBM_D + 0] = m39xT[1 * n_frames + t] - mu_c1;
-        out_Tx24[out_i * GMM_UBM_D + 12] = m39xT[14 * n_frames + t];
-        for (int d = 1; d < 12; d++) {
+        out_Tx24[out_i * GMM_UBM_D + n_stat] = m39xT[(d1_off + 1) * n_frames + t];
+        for (int d = 1; d < n_stat; d++) {
             out_Tx24[out_i * GMM_UBM_D + d] = m39xT[(1 + d) * n_frames + t];
-            out_Tx24[out_i * GMM_UBM_D + 12 + d] = m39xT[(14 + d) * n_frames + t];
+            out_Tx24[out_i * GMM_UBM_D + n_stat + d] = m39xT[(d1_off + 1 + d) * n_frames + t];
         }
         out_i++;
     }

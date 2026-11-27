@@ -58,16 +58,17 @@ def load_sessions_custom(directory, vad=300, use_ns=True, alpha=0.8):
 
 
 def extract_gmm_features(frame_mat, norm="cmn", use_deltas=True, keep_frac=0.70):
-    """(39, T) -> (T', D) com Frame-VAD (top keep_frac de c0), c1..c12 (+ delta) e normalização."""
+    """(3*N_MFCC, T) -> (T', D) com Frame-VAD (top keep_frac de c0), c1..c_{K-1} (+ delta) e normalização."""
+    n_mfcc = frame_mat.shape[0] // 3
     if keep_frac < 1.0:
         c0 = frame_mat[0]
         k_keep = max(10, int(round(len(c0) * keep_frac)))
         idx_keep = np.sort(np.argsort(c0)[-k_keep:])
         frame_mat = frame_mat[:, idx_keep]
     if use_deltas:
-        x = np.vstack([frame_mat[1:13], frame_mat[14:26]]).T.copy()  # (T', 24)
+        x = np.vstack([frame_mat[1:n_mfcc], frame_mat[n_mfcc + 1 : 2 * n_mfcc]]).T.copy()
     else:
-        x = frame_mat[1:13].T.copy()  # (T', 12)
+        x = frame_mat[1:n_mfcc].T.copy()
     if norm == "cmn":
         x = x - x.mean(axis=0, keepdims=True)
     elif norm == "cmn_c1":

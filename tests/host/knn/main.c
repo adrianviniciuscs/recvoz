@@ -118,24 +118,24 @@ int main(void)
         (void)ENROLL_DEFAULT_NAMES; // só p/ -Wall não reclamar do gerado
         int correct = 0;
         float max_same = 0, min_other = 1;
-        float base[(ENROLL_DEFAULT_NVEC - 1) * 39];
+        float base[(ENROLL_DEFAULT_NVEC - 1) * 51];
         int lb[ENROLL_DEFAULT_NVEC - 1];
         for (int i = 0; i < ENROLL_DEFAULT_NVEC; i++) {
             int c = 0;
             for (int j = 0; j < ENROLL_DEFAULT_NVEC; j++) {
                 if (j == i) continue;
-                memcpy(base + c * 39, ENROLL_DEFAULT_VECS[j], 39 * sizeof(float));
+                memcpy(base + c * 51, ENROLL_DEFAULT_VECS[j], 51 * sizeof(float));
                 lb[c] = ENROLL_DEFAULT_LABELS[j];
                 c++;
             }
             float dmin = -1;
             int w = knn_classify(ENROLL_DEFAULT_VECS[i], base, lb,
-                                 ENROLL_DEFAULT_NVEC - 1, 39, 1, 3, 0.065f, &dmin);
+                                 ENROLL_DEFAULT_NVEC - 1, 51, 1, 3, 0.065f, &dmin);
             if (w == ENROLL_DEFAULT_LABELS[i]) correct++;
             float ds = 1, doo = 1;
             for (int j = 0; j < ENROLL_DEFAULT_NVEC; j++) {
                 if (j == i) continue;
-                float d = knn_cos_dist(ENROLL_DEFAULT_VECS[i], ENROLL_DEFAULT_VECS[j], 39, 1);
+                float d = knn_cos_dist(ENROLL_DEFAULT_VECS[i], ENROLL_DEFAULT_VECS[j], 51, 1);
                 if (ENROLL_DEFAULT_LABELS[j] == ENROLL_DEFAULT_LABELS[i]) { if (d < ds) ds = d; }
                 else { if (d < doo) doo = d; }
             }

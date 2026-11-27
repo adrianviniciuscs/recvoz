@@ -15,7 +15,7 @@ from .voice_prior import VOICE_PRIOR
 
 TARGET_SR = 16000
 VOICE_LOW, VOICE_HIGH = 80, 8000
-N_FFT, HOP_LENGTH, N_MFCC, N_MELS = 1024, 256, 13, 40
+N_FFT, HOP_LENGTH, N_MFCC, N_MELS = 1024, 256, 17, 40
 WIN_SAMPLES, VAD_CHUNK = 32000, 1600
 NAME = re.compile(r"^locutor_(?P<speaker>[a-zA-Z0-9_]+)_(?P<session>s\d+)\.wav$")
 
@@ -80,7 +80,7 @@ def pipeline(y, noise=None, alpha=0.8, floor=0.05):
             g = np.divide(s_hat, denom, out=np.zeros_like(s_hat), where=denom > 1e-12)
             g2 = np.maximum(g * g, floor)
             p = g2 * p
-    mel = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS) @ p
+    mel = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS, htk=True) @ p
     db = 10 * np.log10(np.maximum(mel, 1e-10))
     db = np.maximum(db, db.max(axis=0, keepdims=True) - 80)
     m = librosa.feature.mfcc(S=db, sr=TARGET_SR, n_mfcc=N_MFCC)

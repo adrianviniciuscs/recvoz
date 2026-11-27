@@ -15,7 +15,7 @@ import numpy as np
 from scipy import signal
 from sklearn.mixture import GaussianMixture
 from recvoz.features import (TARGET_SR, VOICE_LOW, VOICE_HIGH, N_FFT, HOP_LENGTH,
-                             N_MELS, WIN_SAMPLES, pipeline, load_audio, load_dataset)
+                             N_MFCC, N_MELS, WIN_SAMPLES, pipeline, load_audio, load_dataset)
 
 
 def C(value):
@@ -43,7 +43,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
     assert sos.shape == (5, 6), sos.shape
 
     mel = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS,
-                              fmin=0.0, fmax=8000.0, htk=False, norm="slaney")
+                              fmin=0.0, fmax=8000.0, htk=True, norm="slaney")
     assert mel.shape == (N_MELS, 513), mel.shape
     # Pesos exatos (CSR): triângulos amostrados não zeram nas bordas,
     # então copiamos os valores em vez de reconstruir rampas.
@@ -58,17 +58,17 @@ def generate(staging, pcm, dataset, ubm_frames=None):
     assert np.allclose(w2, w2[::-1]), "SG order2 deveria ser simetrico"
     print("SG order2 interior:", np.round(w2, 6))
 
-    # DCT-II ortonormal 13xN_MELS (== scipy.fft.dct(type=2, norm='ortho')):
+    # DCT-II ortonormal N_MFCC x N_MELS (== scipy.fft.dct(type=2, norm='ortho')):
     # evita cos() em double (emulado) no ESP32-S3.
     n = np.arange(N_MELS)[None, :]
-    k = np.arange(13)[:, None]
+    k = np.arange(N_MFCC)[:, None]
     raw = 2 * np.cos(np.pi * (2 * n + 1) * k / (2.0 * N_MELS))
     dct = raw / np.sqrt(2 * N_MELS)
     dct[0] /= np.sqrt(2)
 
     with open(mfcc_dir / "mfcc_tables.h", "w") as f:
         f.write("// GERADO por tools/export_mfcc.py — não editar à mão.\n")
-        f.write(f"// librosa {librosa.__version__} | sr=16000 bandpass 80-7920 SOS(5) mel{N_MELS} slaney\n#pragma once\n")
+        f.write(f"// librosa {librosa.__version__} | sr=16000 bandpass 80-7920 SOS(5) mel{N_MELS} htk\n#pragma once\n")
         f.write("#include <stdint.h>\n\n#define MFCC_N_SOS 5\n");
         f.write("static const float MFCC_SOS[5][6] = {\n")
         for row in sos:
@@ -90,8 +90,8 @@ def generate(staging, pcm, dataset, ubm_frames=None):
             f.write(f"    {{{vals}}},\n")
         f.write("};\n\n// Savitzky-Golay order=2 width=9 interior (simetrico; bordas = mesma janela nos 9 1os/ultimos)\n")
         f.write("static const float MFCC_SG2[9] = {%s};\n" % ", ".join(C(v) for v in w2))
-        f.write(f"\n// DCT-II ortho 13x{N_MELS} (dot float no firmware; sem cos emulado)\n")
-        f.write(f"static const float MFCC_DCT[13][{N_MELS}] = {{\n")
+        f.write(f"\n// DCT-II ortho {N_MFCC}x{N_MELS} (dot float no firmware; sem cos emulado)\n")
+        f.write(f"static const float MFCC_DCT[{N_MFCC}][{N_MELS}] = {{\n")
         for row in dct:
             f.write("    {%s},\n" % ", ".join(C(v) for v in row))
         f.write("};\n")
@@ -103,7 +103,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
         data.astype("<f4").tofile(test_dir / (name + ".bin"))
     p37 = np.abs(librosa.stft(yf, n_fft=N_FFT, hop_length=HOP_LENGTH,
                                center=True, pad_mode="constant")[:, 37]) ** 2
-    mel37 = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS) @ p37
+    mel37 = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS, htk=True) @ p37
     for name, data in [("expected_pow37", p37), ("expected_mel37", mel37),
                        ("expected_db37", librosa.power_to_db(mel37))]:
         data.astype("<f4").tofile(test_dir / (name + ".bin"))
@@ -113,7 +113,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
         f.write('// GERADO por tools/export_mfcc.py; requer recalibrar tau.\n#pragma once\n#include <stdint.h>\n')
         f.write(f'#define ENROLL_DEFAULT_NSPK {len(names)}\n#define ENROLL_DEFAULT_NVEC {len(labels)}\n')
         f.write(f'static const char *ENROLL_DEFAULT_NAMES[{len(names)}] = {{' + ', '.join(json.dumps(n) for n in names) + '};\n')
-        f.write(f'static const float ENROLL_DEFAULT_VECS[{len(labels)}][39] = {{\n')
+        f.write(f'static const float ENROLL_DEFAULT_VECS[{len(labels)}][{3 * N_MFCC}] = {{\n')
         for row in dataset.vectors:
             f.write('    {' + ', '.join(C(v) for v in row) + '},\n')
         f.write('};\n')
@@ -121,13 +121,14 @@ def generate(staging, pcm, dataset, ubm_frames=None):
     np.savez(test_dir / 'enroll_vectors.npz', vecs=dataset.vectors, labels=dataset.labels,
              sessions=dataset.sessions, sources=dataset.sources)
 
-    # --- 3. GMM-UBM + Frame-VAD (top 70% c0) + CMN-c1 (8 Gaussianas diagonais em 24 dims) ---
-    idx24 = np.r_[1:13, 14:26]
-    def cmn_c1(m39):
-        c0 = m39[0, :]
+    # --- 3. GMM-UBM + Frame-VAD (top 70% c0) + CMN-c1 (8 Gaussianas diagonais em 2*(N_MFCC-1) dims) ---
+    gmm_d = 2 * (N_MFCC - 1)
+    idx_gmm = np.r_[1:N_MFCC, N_MFCC + 1 : 2 * N_MFCC]
+    def cmn_c1(m_all):
+        c0 = m_all[0, :]
         k_keep = max(10, int(round(len(c0) * 0.70)))
         idx_keep = np.sort(np.argsort(c0)[-k_keep:])
-        X = m39[idx24, :][:, idx_keep].T.astype(np.float64).copy()
+        X = m_all[idx_gmm, :][:, idx_keep].T.astype(np.float64).copy()
         X[:, 0] -= X[:, 0].mean()
         return X
 
@@ -150,8 +151,8 @@ def generate(staging, pcm, dataset, ubm_frames=None):
 
     with (gmm_dir / 'gmm_default.h').open('w') as f:
         src_tag = 'FLEURS PT-BR' if ubm_frames is not None else 'local'
-        f.write(f'// GERADO por tools/export_mfcc.py — GMM-UBM (M=8, D=24, CMN-c1, UBM={src_tag}).\n#pragma once\n')
-        f.write('#define GMM_M 8\n#define GMM_D 24\n#define GMM_R 8.0f\n')
+        f.write(f'// GERADO por tools/export_mfcc.py — GMM-UBM (M=8, D={gmm_d}, CMN-c1, UBM={src_tag}).\n#pragma once\n')
+        f.write(f'#define GMM_M 8\n#define GMM_D {gmm_d}\n#define GMM_R 8.0f\n')
         f.write(f'#define GMM_NSPK {len(names)}\n')
         f.write('static const float GMM_UBM_LOGW[GMM_M] = {%s};\n' % ', '.join(C(v) for v in ubm_logw))
         f.write('static const float GMM_UBM_LOGCONST[GMM_M] = {%s};\n' % ', '.join(C(v) for v in ubm_logconst))

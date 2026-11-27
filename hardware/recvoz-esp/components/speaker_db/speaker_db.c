@@ -58,13 +58,12 @@ static esp_err_t load_all(void)
     uint32_t bits = 0;
     uint8_t tauv = 0;
     nvs_get_u8(h, "tauver", &tauv);
-    if (tauv != 4) {
-        // TAU_DEFAULT mudou (-> 0.62, GMM-UBM FLEURS PT-BR + CMN-c1): ignora
-        // valor antigo, grava o novo + carimba versão.
+    if (tauv != 5) {
+        // TAU_DEFAULT / dimensões mudaram (HTK-40 + 17 MFCCs, D=32, Frame-VAD 70%)
         s_tau = SPK_TAU_DEFAULT;
         memcpy(&bits, &s_tau, 4);
         esp_err_t r = nvs_set_u32(h, "tau", bits);
-        if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 4);
+        if (r == ESP_OK) r = nvs_set_u8(h, "tauver", 5);
         if (r == ESP_OK) r = nvs_commit(h);
         if (r != ESP_OK) { nvs_close(h); return r; }
     } else if (nvs_get_u32(h, "tau", &bits) == ESP_OK) {
