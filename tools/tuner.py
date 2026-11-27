@@ -30,7 +30,7 @@ from recvoz.features import (  # noqa: E402
     power,
 )
 
-MEL_FB = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=128)
+MEL_FB = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=40)
 
 
 def find_ports():

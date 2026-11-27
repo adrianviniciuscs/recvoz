@@ -12,8 +12,11 @@ typedef struct {
     double sum[GMM_UBM_M][GMM_UBM_D];
 } gmm_adapt_ctx_t;
 
-/** @brief Extrai 24 dims (c1..c12 + Δc1..Δc12) de m39xT e aplica CMN (média zero na janela). */
-void gmm_cmn24_window(const float *m39xT, int n_frames, float *out_Tx24);
+/**
+ * @brief Frame-VAD (top 70% de c0) + extração de 24 dims (c1..c12 + Δc1..Δc12) + CMN seletiva em c1.
+ * @return Número de quadros mantidos em out_Tx24 (≤ n_frames).
+ */
+int gmm_cmn24_window(const float *m39xT, int n_frames, float *out_Tx24);
 
 /** @brief Log-verossimilhança média por frame contra modelo diagonal (NULL = UBM). */
 float gmm_logpdf_cmn(const float *Tx24, int n_frames, const float *means_Mx24);

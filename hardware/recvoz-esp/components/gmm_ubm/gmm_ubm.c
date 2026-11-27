@@ -1,25 +1,67 @@
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "gmm_ubm.h"
 #include "gmm_default.h"
 
-void gmm_cmn24_window(const float *m39xT, int n_frames, float *out_Tx24)
+#define GMM_FVAD_FRAC 0.70f
+#define GMM_FVAD_MIN  10
+
+int gmm_cmn24_window(const float *m39xT, int n_frames, float *out_Tx24)
 {
-    if (!m39xT || !out_Tx24 || n_frames <= 0) return;
+    if (!m39xT || !out_Tx24 || n_frames <= 0) return 0;
+
+    // Frame-level VAD: mantém os 70% quadros de maior energia (c0),
+    // descartando micropausas internas e consoantes surdas antes da CMN-c1.
+    int k_keep = (int)(n_frames * GMM_FVAD_FRAC + 0.5f);
+    if (k_keep < GMM_FVAD_MIN) k_keep = GMM_FVAD_MIN;
+    if (k_keep > n_frames) k_keep = n_frames;
+
+    uint8_t keep[256];
+    int use_mask = (n_frames <= (int)sizeof(keep) && k_keep < n_frames);
+    if (use_mask) {
+        int order[256];
+        for (int t = 0; t < n_frames; t++) order[t] = t;
+        for (int i = 1; i < n_frames; i++) {
+            int idx = order[i];
+            float key = m39xT[idx];
+            int j = i - 1;
+            while (j >= 0 && m39xT[order[j]] > key) {
+                order[j + 1] = order[j];
+                j--;
+            }
+            order[j + 1] = idx;
+        }
+        memset(keep, 0, (size_t)n_frames);
+        for (int i = n_frames - k_keep; i < n_frames; i++)
+            keep[order[i]] = 1;
+    }
+
     // CMN seletiva em c1 (d=0): remove viés de inclinação espectral/canal
     // preservando a assinatura do trato vocal em c2..c12 e dinâmicas Δc1..Δc12.
     double s_c1 = 0.0;
-    for (int t = 0; t < n_frames; t++) s_c1 += m39xT[1 * n_frames + t];
-    float mu_c1 = (float)(s_c1 / n_frames);
+    int kept = 0;
     for (int t = 0; t < n_frames; t++) {
-        out_Tx24[t * GMM_UBM_D + 0] = m39xT[1 * n_frames + t] - mu_c1;
-        out_Tx24[t * GMM_UBM_D + 12] = m39xT[14 * n_frames + t];
-        for (int d = 1; d < 12; d++) {
-            out_Tx24[t * GMM_UBM_D + d] = m39xT[(1 + d) * n_frames + t];
-            out_Tx24[t * GMM_UBM_D + 12 + d] = m39xT[(14 + d) * n_frames + t];
-        }
+        if (use_mask && !keep[t]) continue;
+        s_c1 += m39xT[1 * n_frames + t];
+        kept++;
     }
+    if (kept <= 0) return 0;
+    float mu_c1 = (float)(s_c1 / kept);
+
+    int out_i = 0;
+    for (int t = 0; t < n_frames; t++) {
+        if (use_mask && !keep[t]) continue;
+        out_Tx24[out_i * GMM_UBM_D + 0] = m39xT[1 * n_frames + t] - mu_c1;
+        out_Tx24[out_i * GMM_UBM_D + 12] = m39xT[14 * n_frames + t];
+        for (int d = 1; d < 12; d++) {
+            out_Tx24[out_i * GMM_UBM_D + d] = m39xT[(1 + d) * n_frames + t];
+            out_Tx24[out_i * GMM_UBM_D + 12 + d] = m39xT[(14 + d) * n_frames + t];
+        }
+        out_i++;
+    }
+    return out_i;
 }
 
 static void frame_comp_logp(const float *x, const float *means_Mx24, float *out_logp)
@@ -69,9 +111,9 @@ float gmm_score_llr(const float *m39xT, int n_frames, const float *spk_means_Mx2
     if (!m39xT || n_frames <= 0) return -100.0f;
     float *cmn = (float *)malloc((size_t)n_frames * GMM_UBM_D * sizeof(float));
     if (!cmn) return -100.0f;
-    gmm_cmn24_window(m39xT, n_frames, cmn);
-    float ubm_ll = gmm_logpdf_cmn(cmn, n_frames, NULL);
-    float llr = gmm_logpdf_cmn(cmn, n_frames, spk_means_Mx24) - ubm_ll;
+    int nk = gmm_cmn24_window(m39xT, n_frames, cmn);
+    float ubm_ll = gmm_logpdf_cmn(cmn, nk, NULL);
+    float llr = gmm_logpdf_cmn(cmn, nk, spk_means_Mx24) - ubm_ll;
     free(cmn);
     return llr;
 }
@@ -86,9 +128,9 @@ void gmm_adapt_add_window(gmm_adapt_ctx_t *ctx, const float *m39xT, int n_frames
     if (!ctx || !m39xT || n_frames <= 0) return;
     float *cmn = (float *)malloc((size_t)n_frames * GMM_UBM_D * sizeof(float));
     if (!cmn) return;
-    gmm_cmn24_window(m39xT, n_frames, cmn);
+    int nk = gmm_cmn24_window(m39xT, n_frames, cmn);
     float logp[GMM_UBM_M];
-    for (int t = 0; t < n_frames; t++) {
+    for (int t = 0; t < nk; t++) {
         const float *xt = cmn + t * GMM_UBM_D;
         frame_comp_logp(xt, NULL, logp);
         float lse = logsumexp_m(logp);

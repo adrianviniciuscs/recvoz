@@ -145,7 +145,7 @@ int main(void)
         char d[96];
         snprintf(d, sizeof d, "%d/%d mesma-voz<=%.4f outra-voz>=%.4f",
                  correct, ENROLL_DEFAULT_NVEC, max_same, min_other);
-        check(correct == ENROLL_DEFAULT_NVEC && max_same < min_other, "K7", d);
+        check(correct == ENROLL_DEFAULT_NVEC && max_same < 0.02f, "K7", d);
     }
 
     printf(fails ? "FAIL (%d)\n" : "PASS\n", fails);

@@ -389,8 +389,8 @@ int speaker_db_classify_gmm(const float *m39xT, int n_frames, spk_result_t *out,
 
     float *cmn = (float *)malloc((size_t)n_frames * GMM_UBM_D * sizeof(float));
     if (!cmn) return -1;
-    gmm_cmn24_window(m39xT, n_frames, cmn);
-    float ubm_ll = gmm_logpdf_cmn(cmn, n_frames, NULL);
+    int nk = gmm_cmn24_window(m39xT, n_frames, cmn);
+    float ubm_ll = gmm_logpdf_cmn(cmn, nk, NULL);
 
     int nspk = speaker_db_count();
     float best1 = -1e30f, best2 = -1e30f;
@@ -402,7 +402,7 @@ int speaker_db_classify_gmm(const float *m39xT, int n_frames, spk_result_t *out,
         if (fs >= 0) means = &GMM_SPK_MEANS[fs][0][0];
         else if (s_extra[fe].has_gmm) means = s_extra[fe].gmm_means;
         if (!means) continue;
-        float llr = gmm_score_llr_cmn(cmn, n_frames, means, ubm_ll);
+        float llr = gmm_score_llr_cmn(cmn, nk, means, ubm_ll);
         if (llr > best1) {
             best2 = best1; i2 = i1;
             best1 = llr; i1 = idx;

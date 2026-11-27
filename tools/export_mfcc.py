@@ -15,7 +15,7 @@ import numpy as np
 from scipy import signal
 from sklearn.mixture import GaussianMixture
 from recvoz.features import (TARGET_SR, VOICE_LOW, VOICE_HIGH, N_FFT, HOP_LENGTH,
-                             WIN_SAMPLES, pipeline, load_audio, load_dataset)
+                             N_MELS, WIN_SAMPLES, pipeline, load_audio, load_dataset)
 
 
 def C(value):
@@ -42,13 +42,13 @@ def generate(staging, pcm, dataset, ubm_frames=None):
     zi = signal.sosfilt_zi(sos)
     assert sos.shape == (5, 6), sos.shape
 
-    mel = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=128,
+    mel = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS,
                               fmin=0.0, fmax=8000.0, htk=False, norm="slaney")
-    assert mel.shape == (128, 513), mel.shape
+    assert mel.shape == (N_MELS, 513), mel.shape
     # Pesos exatos (CSR): triângulos amostrados não zeram nas bordas,
     # então copiamos os valores em vez de reconstruir rampas.
     rows = []
-    for m in range(128):
+    for m in range(N_MELS):
         nz = np.nonzero(mel[m] > 0)[0]
         rows.append((int(nz[0]), mel[m][nz[0]:nz[-1] + 1].astype(np.float64)))
     stride = max(len(w) for _, w in rows)
@@ -58,17 +58,17 @@ def generate(staging, pcm, dataset, ubm_frames=None):
     assert np.allclose(w2, w2[::-1]), "SG order2 deveria ser simetrico"
     print("SG order2 interior:", np.round(w2, 6))
 
-    # DCT-II ortonormal 13x128 (== scipy.fft.dct(type=2, norm='ortho')):
-    # evita 209k cos() em double (emulado, ~4 s) no S3.
-    n = np.arange(128)[None, :]
+    # DCT-II ortonormal 13xN_MELS (== scipy.fft.dct(type=2, norm='ortho')):
+    # evita cos() em double (emulado) no ESP32-S3.
+    n = np.arange(N_MELS)[None, :]
     k = np.arange(13)[:, None]
-    raw = 2 * np.cos(np.pi * (2 * n + 1) * k / 256.0)
-    dct = raw / np.sqrt(2 * 128)
+    raw = 2 * np.cos(np.pi * (2 * n + 1) * k / (2.0 * N_MELS))
+    dct = raw / np.sqrt(2 * N_MELS)
     dct[0] /= np.sqrt(2)
 
     with open(mfcc_dir / "mfcc_tables.h", "w") as f:
         f.write("// GERADO por tools/export_mfcc.py — não editar à mão.\n")
-        f.write(f"// librosa {librosa.__version__} | sr=16000 bandpass 80-7920 SOS(5) mel128 slaney\n#pragma once\n")
+        f.write(f"// librosa {librosa.__version__} | sr=16000 bandpass 80-7920 SOS(5) mel{N_MELS} slaney\n#pragma once\n")
         f.write("#include <stdint.h>\n\n#define MFCC_N_SOS 5\n");
         f.write("static const float MFCC_SOS[5][6] = {\n")
         for row in sos:
@@ -76,21 +76,22 @@ def generate(staging, pcm, dataset, ubm_frames=None):
         f.write("};\nstatic const float MFCC_SOS_ZI[5][2] = {\n")
         for row in zi:
             f.write("    {%s},\n" % ", ".join(C(v) for v in row))
-        f.write("};\n\n#define MFCC_N_MELS 128\n")
+        f.write(f"}};\n\n#define MFCC_N_MELS {N_MELS}\n")
         f.write(f"#define MFCC_MEL_STRIDE {stride}\n")
-        f.write("static const uint16_t MFCC_MEL_START[128] = {\n    ")
+        f.write(f"static const uint16_t MFCC_MEL_START[{N_MELS}] = {{\n    ")
         f.write(", ".join(str(s) for s, _ in rows))
-        f.write("\n};\nstatic const uint8_t MFCC_MEL_LEN[128] = {\n    ")
+        f.write(f"\n}};\nstatic const uint8_t MFCC_MEL_LEN[{N_MELS}] = {{\n    ")
         f.write(", ".join(str(len(w)) for _, w in rows))
-        f.write("\n};\nstatic const float MFCC_MEL_W[128][MFCC_MEL_STRIDE] = {\n")
+        f.write(f"\n}};\nstatic const float MFCC_MEL_W[{N_MELS}][MFCC_MEL_STRIDE] = {{\n")
         for s, w in rows:
             vals = ", ".join(C(v) for v in w)
-            vals += ", " + ", ".join(["0.0f"] * (stride - len(w)))
+            if stride > len(w):
+                vals += ", " + ", ".join(["0.0f"] * (stride - len(w)))
             f.write(f"    {{{vals}}},\n")
         f.write("};\n\n// Savitzky-Golay order=2 width=9 interior (simetrico; bordas = mesma janela nos 9 1os/ultimos)\n")
         f.write("static const float MFCC_SG2[9] = {%s};\n" % ", ".join(C(v) for v in w2))
-        f.write("\n// DCT-II ortho 13x128 (dot float no firmware; sem cos emulado)\n")
-        f.write("static const float MFCC_DCT[13][128] = {\n")
+        f.write(f"\n// DCT-II ortho 13x{N_MELS} (dot float no firmware; sem cos emulado)\n")
+        f.write(f"static const float MFCC_DCT[13][{N_MELS}] = {{\n")
         for row in dct:
             f.write("    {%s},\n" % ", ".join(C(v) for v in row))
         f.write("};\n")
@@ -102,7 +103,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
         data.astype("<f4").tofile(test_dir / (name + ".bin"))
     p37 = np.abs(librosa.stft(yf, n_fft=N_FFT, hop_length=HOP_LENGTH,
                                center=True, pad_mode="constant")[:, 37]) ** 2
-    mel37 = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=128) @ p37
+    mel37 = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS) @ p37
     for name, data in [("expected_pow37", p37), ("expected_mel37", mel37),
                        ("expected_db37", librosa.power_to_db(mel37))]:
         data.astype("<f4").tofile(test_dir / (name + ".bin"))
@@ -120,10 +121,13 @@ def generate(staging, pcm, dataset, ubm_frames=None):
     np.savez(test_dir / 'enroll_vectors.npz', vecs=dataset.vectors, labels=dataset.labels,
              sessions=dataset.sessions, sources=dataset.sources)
 
-    # --- 3. GMM-UBM + CMN-c1 (8 Gaussianas diagonais em 24 dims: c1..c12 + Δc1..Δc12) ---
+    # --- 3. GMM-UBM + Frame-VAD (top 70% c0) + CMN-c1 (8 Gaussianas diagonais em 24 dims) ---
     idx24 = np.r_[1:13, 14:26]
     def cmn_c1(m39):
-        X = m39[idx24, :].T.astype(np.float64).copy()
+        c0 = m39[0, :]
+        k_keep = max(10, int(round(len(c0) * 0.70)))
+        idx_keep = np.sort(np.argsort(c0)[-k_keep:])
+        X = m39[idx24, :][:, idx_keep].T.astype(np.float64).copy()
         X[:, 0] -= X[:, 0].mean()
         return X
 

@@ -3,7 +3,7 @@
 ## Fluxo embarcado
 
 ```text
-INMP441 → audio_in → capture/VAD → MFCC/Wiener → veto mod → CMN-c1 → GMM-UBM (speaker_db) → recognition → OLED
+INMP441 → audio_in → capture/VAD → MFCC(40)/Wiener → veto mod → Frame-VAD + CMN-c1 → gmm_ubm (speaker_db) → recognition → OLED
                         ↑                                               ↑
              tarefa principal ←─────────────── fila ←──────────── console serial
 ```
@@ -45,13 +45,15 @@ o conjunto inteiro; não rode build e exportação simultaneamente.
 ## Configuração DSP
 
 16 kHz, PCM int16 mono, VAD passa-banda adaptativo ($\mathrm{RMS} > \max(300, 2\cdot\mathrm{RMS}_{\text{ruído}})$),
-Butterworth ordem 5 de 80 a 7920 Hz (`filtfilt`), FFT 1024, hop 256, supressão
-espectral de Berouti ($\alpha = 0{,}8$, piso $-13\text{ dB}$) com holdoff e
-guarda de estacionariedade, 128 bandas mel, 13 MFCC + Δ + ΔΔ (126 frames) e
+Butterworth ordem 5 de 80 a 7920 Hz (`filtfilt` *in-place*), FFT 1024, hop 256,
+filtro de Wiener espectral casado ao espectro médio da voz ($\alpha = 0{,}8$,
+piso $-13\text{ dB}$, *prior* vocal FLEURS PT-BR de 513 bins em Flash) com holdoff
+e guarda de estacionariedade, 40 bandas Mel, 13 MFCC + Δ + ΔΔ (126 frames) e
 veto de ruído por modulação articulatória (`mod`).
-A classificação principal usa **GMM-UBM diagonal** ($M = 8$, $D = 24$ em
-$c_1\dots c_{12} + \Delta c_1\dots \Delta c_{12}$) com **CMN por janela** e
-adaptação MAP incremental ($r = 8{,}0$, $768\text{ B}$ por locutor na NVS). O
+A classificação principal usa **GMM-UBM diagonal** (componente independente
+`gmm_ubm`, $M = 8$, $D = 24$ em $c_1\dots c_{12} + \Delta c_1\dots \Delta c_{12}$)
+com **Frame-VAD** (top 70% de $c_0$, 88 quadros ativos), **CMN seletiva em $c_1$**
+e adaptação MAP incremental ($r = 8{,}0$, $768\text{ B}$ por locutor na NVS). O
 $k$-NN legado (sem $c_0$, $k = 3$, distância cosseno) permanece disponível para
 comparação e testes históricos. O piso de 80 dB é aplicado por frame, como no
 firmware.

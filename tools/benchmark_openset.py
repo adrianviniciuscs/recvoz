@@ -16,7 +16,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.mixture import GaussianMixture
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import make_pipeline
@@ -57,12 +57,17 @@ def load_sessions_custom(directory, vad=300, use_ns=True, alpha=0.8):
     }
 
 
-def extract_gmm_features(frame_mat, norm="cmn", use_deltas=True):
-    """(39, T) -> (T, D) com seleção de c1..c12 (+ delta c1..c12) e normalização por janela."""
+def extract_gmm_features(frame_mat, norm="cmn", use_deltas=True, keep_frac=0.70):
+    """(39, T) -> (T', D) com Frame-VAD (top keep_frac de c0), c1..c12 (+ delta) e normalização."""
+    if keep_frac < 1.0:
+        c0 = frame_mat[0]
+        k_keep = max(10, int(round(len(c0) * keep_frac)))
+        idx_keep = np.sort(np.argsort(c0)[-k_keep:])
+        frame_mat = frame_mat[:, idx_keep]
     if use_deltas:
-        x = np.vstack([frame_mat[1:13], frame_mat[14:26]]).T.copy()  # (T, 24)
+        x = np.vstack([frame_mat[1:13], frame_mat[14:26]]).T.copy()  # (T', 24)
     else:
-        x = frame_mat[1:13].T.copy()  # (T, 12)
+        x = frame_mat[1:13].T.copy()  # (T', 12)
     if norm == "cmn":
         x = x - x.mean(axis=0, keepdims=True)
     elif norm == "cmn_c1":
@@ -194,14 +199,15 @@ class IndependentGMMClassifier:
 
 
 def compute_eer(known_scores, unknown_scores):
-    """Scores maiores = conhecido. Retorna (eer, eer_threshold, fpr, tpr)."""
+    """Scores maiores = conhecido. Retorna (eer, eer_threshold, auc, fpr, tpr)."""
     y_true = np.r_[np.ones(len(known_scores)), np.zeros(len(unknown_scores))]
     y_score = np.r_[known_scores, unknown_scores]
     fpr, tpr, thresholds = roc_curve(y_true, y_score)
+    auc = float(roc_auc_score(y_true, y_score))
     fnr = 1.0 - tpr
     idx = int(np.argmin(np.abs(fpr - fnr)))
     eer = float((fpr[idx] + fnr[idx]) / 2.0)
-    return eer, float(thresholds[idx]), fpr, tpr
+    return eer, float(thresholds[idx]), auc, fpr, tpr
 
 
 def calibrate_threshold(cal_known_scores, cal_unknown_scores):
@@ -221,7 +227,7 @@ def evaluate_model_scores(cal_k, cal_u, test_k_pred, test_k_true, test_k_scores,
     frr = float((test_k_scores < tau).mean())
     closed_acc = float((test_k_pred == test_k_true).mean())
     open_known_acc = float(((test_k_pred == test_k_true) & (test_k_scores >= tau)).mean())
-    eer, _, fpr, tpr = compute_eer(test_k_scores, test_u_scores)
+    eer, _, auc, fpr, tpr = compute_eer(test_k_scores, test_u_scores)
     return {
         "tau": tau,
         "cal_balanced_err": cal_err,
@@ -230,6 +236,7 @@ def evaluate_model_scores(cal_k, cal_u, test_k_pred, test_k_true, test_k_scores,
         "far": far,
         "frr": frr,
         "eer": eer,
+        "auc": auc,
         "fpr": fpr.tolist(),
         "tpr": tpr.tolist(),
     }
@@ -482,7 +489,7 @@ def main():
     # Multi-seed sobre todas as combinações de sessões dos conhecidos (média ± DP)
     seeds = [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
     seen_splits = set()
-    multi = {m: {"closed_acc": [], "far": [], "frr": [], "eer": []} for m in main_models}
+    multi = {m: {"closed_acc": [], "far": [], "frr": [], "eer": [], "auc": []} for m in main_models}
     for sd in seeds:
         tr, ca, te = session_split(known_ns["labels"], known_ns["sessions"], seed=sd, calibration=True)
         key = (tuple(sorted(set(known_ns["sessions"][tr]))), tuple(sorted(set(known_ns["sessions"][ca]))), tuple(sorted(set(known_ns["sessions"][te]))))
@@ -491,7 +498,7 @@ def main():
         seen_splits.add(key)
         res = run_all_models_on_split(known_ns, cal_u_ns, test_u_ns, tr, ca, te, ext_ubms=ext_ubms)
         for m, vals in res.items():
-            for k in ("closed_acc", "far", "frr", "eer"):
+            for k in ("closed_acc", "far", "frr", "eer", "auc"):
                 multi[m][k].append(vals[k])
 
     multi_summary = {}
@@ -541,7 +548,8 @@ def main():
 
     print(f"\n=== RESUMO MULTI-SPLIT ({len(seen_splits)} splits únicos de sessão) ===")
     for m, d in multi_summary.items():
-        print(f"{m:22s} | Acc={d['closed_acc']['mean']*100:5.1f}±{d['closed_acc']['std']*100:4.1f}% | "
+        print(f"{m:26s} | Acc={d['closed_acc']['mean']*100:5.1f}±{d['closed_acc']['std']*100:4.1f}% | "
+              f"AUC={d['auc']['mean']*100:5.1f}±{d['auc']['std']*100:4.1f}% | "
               f"FAR={d['far']['mean']*100:5.1f}±{d['far']['std']*100:4.1f}% | "
               f"FRR={d['frr']['mean']*100:5.1f}±{d['frr']['std']*100:4.1f}% | "
               f"EER={d['eer']['mean']*100:5.1f}±{d['eer']['std']*100:4.1f}%")

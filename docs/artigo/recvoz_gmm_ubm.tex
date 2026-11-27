@@ -58,7 +58,7 @@
 }
 
 \begin{abstract}
-Este trabalho apresenta a modelagem matemática, a implementação embarcada e a validação experimental de um sistema de identificação de locutores em conjunto aberto (\textit{open-set}) operando integralmente em um microcontrolador ESP32-S3 sem PSRAM externa ($\approx 181\text{ KiB}$ de RAM dinâmica disponível), com amostragem a $16\text{ kHz}$ via microfone MEMS I2S INMP441. Partindo do diagnóstico quantitativo das falhas de um classificador clássico baseado na média temporal de coeficientes MFCC e $k$-NN cosseno --- nomeadamente contaminação por ruído estacionário durante o cadastro ao vivo (\textit{online enrollment}), deslocamento da inclinação espectral ($c_1$) entre sessões e disparos espúrios por energia subsônica ($< 80\text{ Hz}$) ---, propõe-se um \textit{pipeline} integrado por: (i) detector de atividade vocal (VAD) passa-banda ($80\text{--}7920\text{ Hz}$) com limiar adaptativo por relação sinal-ruído ($\mathrm{SNR} \ge +6\text{ dB}$); (ii) \textbf{filtro de Wiener espectral casado ao espectro médio da voz humana} ($\alpha = 0{,}8$, piso $-13\text{ dB}$, \textit{prior} vocal de $513$ bins em Flash) com calibração inicial no \textit{boot}, \textit{holdoff} de $2{,}5\text{ s}$ e guarda de estacionariedade; (iii) veto de ruído por âncora cepstral e energia de modulação articulatória ($\mathrm{mod}$); e (iv) modelo probabilístico \textbf{GMM-UBM} diagonal ($M = 8$ componentes, $D = 24$ dimensões em $c_1\dots c_{12}$ e $\Delta c_1\dots \Delta c_{12}$) com Normalização da Média Cepstral (\textbf{CMN}) e adaptação MAP (\textit{Maximum A Posteriori}) incremental de passo único na placa. Os experimentos em conjunto fechado atingem $100\%$ de acurácia em todas as $10$ partições de sessão (\textit{holdout} e suítes unitárias C/Python), com resposta fim a fim medida no hardware de $961{,}8 \pm 17{,}1\text{ ms}$, consumindo apenas $768\text{ bytes}$ na NVS por locutor cadastrado. Em avaliação \textit{open-set} com $6$ locutores gravados no INMP441 ($19$ sessões, $102$ janelas), o UBM externo (\textit{Google FLEURS PT-BR}, $44\,100$ quadros) acoplado ao filtro de Wiener casado à voz atinge EER médio de $\mathbf{25{,}8 \pm 8{,}7\%}$ (e $\mathbf{30{,}2 \pm 9{,}8\%}$ com CMN seletiva em $c_1$ e $\mathrm{FRR}=7{,}7\%$), superando $k$-NN ($30{,}0\%$, $\mathrm{FRR}=44{,}2\%$), Centroide ($31{,}6\%$), SVM-RBF ($44{,}9\%$) e GMM independente ($46{,}5\%$) com $1{,}66\text{ KiB}$ para o UBM e $2{,}0\text{ KiB}$ para o \textit{prior} vocal em Flash.
+Este trabalho apresenta a modelagem matemática, a implementação embarcada e a validação experimental de um sistema de identificação de locutores em conjunto aberto (\textit{open-set}) operando integralmente em um microcontrolador ESP32-S3 sem PSRAM externa ($\approx 181\text{ KiB}$ de RAM dinâmica disponível), com amostragem a $16\text{ kHz}$ via microfone MEMS I2S INMP441. Partindo do diagnóstico quantitativo das falhas de um classificador clássico baseado na média temporal de coeficientes MFCC e $k$-NN cosseno --- nomeadamente contaminação por ruído estacionário durante o cadastro ao vivo (\textit{online enrollment}), deslocamento da inclinação espectral ($c_1$) entre sessões e disparos espúrios por energia subsônica ($< 80\text{ Hz}$) ---, propõe-se um \textit{pipeline} integrado por: (i) detector de atividade vocal (VAD) passa-banda ($80\text{--}7920\text{ Hz}$) com limiar adaptativo por relação sinal-ruído ($\mathrm{SNR} \ge +6\text{ dB}$); (ii) \textbf{filtro de Wiener espectral casado ao espectro médio da voz humana} ($\alpha = 0{,}8$, piso $-13\text{ dB}$, \textit{prior} vocal de $513$ bins em Flash) com banco de $40$ filtros Mel, calibração inicial no \textit{boot}, \textit{holdoff} de $2{,}5\text{ s}$ e guarda de estacionariedade; (iii) veto de ruído por âncora cepstral e energia de modulação articulatória ($\mathrm{mod}$); e (iv) modelo probabilístico \textbf{GMM-UBM} diagonal ($M = 8$ componentes, $D = 24$ dimensões em $c_1\dots c_{12}$ e $\Delta c_1\dots \Delta c_{12}$) com seleção de quadros ativos (\textit{Frame-VAD}, top $70\%$ em $c_0$), Normalização da Média Cepstral seletiva em $c_1$ (\textbf{CMN-$c_1$}) e adaptação MAP (\textit{Maximum A Posteriori}) incremental de passo único na placa. Os experimentos em conjunto fechado atingem $100\%$ de acurácia em todas as $10$ partições de sessão, consumindo apenas $768\text{ bytes}$ na NVS por locutor cadastrado e $348{,}2\text{ KiB}$ de binário final ($66\%$ da partição livre). Em avaliação \textit{open-set} com $6$ locutores gravados no INMP441 ($19$ sessões, $102$ janelas), o UBM externo (\textit{Google FLEURS PT-BR}, $44\,100$ quadros) acoplado ao filtro de Wiener casado à voz, banco de $40$ filtros Mel e \textit{Frame-VAD} atinge \textbf{AUC-ROC de $\mathbf{84{,}6 \pm 4{,}4\%}$} e \textbf{EER médio de $\mathbf{21{,}8 \pm 3{,}6\%}$} com CMN-$c_1$ (e $\mathbf{20{,}8 \pm 7{,}7\%}$ sem CMN), superando $k$-NN ($79{,}4\%$ AUC), Centroide ($75{,}8\%$ AUC), GMM independente ($77{,}4\%$ AUC) e SVM-RBF ($64{,}1\%$ AUC) com $1{,}66\text{ KiB}$ para o UBM e $2{,}0\text{ KiB}$ para o \textit{prior} vocal em Flash.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -110,10 +110,10 @@ Em contrapartida, o GMM-UBM com covariâncias diagonais e adaptação MAP restri
         \node[block, right=of mic] (bp) {DC Blocker +\\Butterworth BP};
         \node[block, right=of bp] (vad) {VAD Adaptativo\\($\mathrm{SNR} \ge +6$ dB)};
         \node[block, right=of vad] (stft) {STFT + Wiener\\Casado à Voz};
-        \node[block, right=of stft] (mfcc) {Mel (128) +\\DCT + $\Delta, \Delta^2$};
+        \node[block, right=of stft] (mfcc) {Mel (40) +\\DCT + $\Delta, \Delta^2$};
         \node[ctrl, right=of mfcc] (veto) {Veto de Ruído\\($\mathrm{mod}$ + âncora)};
 
-        \node[block, below=7mm of veto] (cmn) {CMN por Janela\\($D=24, T=126$)};
+        \node[block, below=7mm of veto] (cmn) {Frame-VAD (70\%)\\+ CMN-$c_1$ ($D{=}24$)};
         \node[block, left=14mm of cmn] (gmm) {GMM-UBM\\($M=8$, LLR)};
         \node[outblk, left=14mm of gmm] (out) {Decisão ($\tau$) +\\OLED / Serial};
 
@@ -172,20 +172,20 @@ A Figura~\ref{fig:vad_esp} ilustra o comportamento do VAD sobre uma captura real
 \label{sec:mfcc}
 
 \subsection{Espectrograma Mel e Coeficientes Dinâmicos}
-Cada janela ativa de $2\text{ s}$ ($32\,000$ amostras) é segmentada por STFT com janela de Hann periódica $h[n] = 0{,}5 - 0{,}5\cos(2\pi n / N_{\mathrm{FFT}})$ de $N_{\mathrm{FFT}} = 1024$ amostras ($64\text{ ms}$), salto $H = 256$ amostras ($16\text{ ms}$) e preenchimento centrado por zeros, produzindo $T = 1 + \lfloor 32000/256 \rfloor = 126$ quadros. A densidade espectral de potência $P[t, k] = |X[t, k]|^2$ ($k = 0\dots 512$) sofre subtração espectral e é integrada por um banco de $M_{\mathrm{mel}} = 128$ filtros triangulares na escala Mel de Slaney (linear abaixo de $1000\text{ Hz}$ e logarítmica acima):
+Cada janela ativa de $2\text{ s}$ ($32\,000$ amostras) é segmentada por STFT com janela de Hann periódica $h[n] = 0{,}5 - 0{,}5\cos(2\pi n / N_{\mathrm{FFT}})$ de $N_{\mathrm{FFT}} = 1024$ amostras ($64\text{ ms}$), salto $H = 256$ amostras ($16\text{ ms}$) e preenchimento centrado por zeros, produzindo $T = 1 + \lfloor 32000/256 \rfloor = 126$ quadros. A densidade espectral de potência $P[t, k] = |X[t, k]|^2$ ($k = 0\dots 512$) sofre filtragem de Wiener casada à voz e é integrada por um banco de $M_{\mathrm{mel}} = 40$ filtros triangulares na escala Mel de Slaney (linear abaixo de $1000\text{ Hz}$ e logarítmica acima):
 \begin{equation}
     \mathrm{mel}(f) = \begin{cases}
         \dfrac{3f}{200}, & f < 1000\text{ Hz}, \\[6pt]
         15 + 27\log_{6{,}4}\!\left(\dfrac{f}{1000}\right), & f \ge 1000\text{ Hz},
     \end{cases}
 \end{equation}
-com energia por banda $E_{\mathrm{mel}}[t, m] = \sum_{k=0}^{512} W_{\mathrm{mel}}[m, k]\, \hat{P}[t, k]$ armazenada em formato esparso (início e comprimento por linha, passo máximo de $24$ bins).
+com energia por banda $E_{\mathrm{mel}}[t, m] = \sum_{k=0}^{512} W_{\mathrm{mel}}[m, k]\, \hat{P}[t, k]$ armazenada em formato esparso. A adoção de $40$ filtros Mel (em vez de $128$, típicos de modelos neurais) suaviza harmônicos individuais de \textit{pitch} e micro-ressonâncias de sala, extraindo um envelope formântico mais estável entre sessões para os $13$ coeficientes MFCC e reduzindo em $\approx 3\times$ a matriz DCT em Flash.
 
 Após compressão logarítmica $L_0[t,m] = 10\log_{10}(\max(E_{\mathrm{mel}}[t,m], 10^{-10}))$ e piso dinâmico de $80\text{ dB}$ relativo ao pico de cada quadro ($L[t,m] = \max(L_0[t,m], \max_{m'} L_0[t,m'] - 80)$), aplica-se a DCT-II ortonormal ($13$ coeficientes estáticos $c_0\dots c_{12}$):
 \begin{equation}
     c_n[t] = \sqrt{\frac{2-\delta_{n,0}}{M_{\mathrm{mel}}}} \sum_{m=0}^{M_{\mathrm{mel}}-1} L[t, m] \cos\!\left(\frac{\pi n (2m+1)}{2 M_{\mathrm{mel}}}\right).
 \end{equation}
-Para viabilizar execução em tempo real no ESP32-S3, a matriz $13 \times 128$ dos cossenos é pré-computada em Flash (\texttt{MFCC\_DCT}), eliminando $209\,664$ chamadas a \texttt{cos()} em dupla precisão emulada e reduzindo a latência de extração de $\approx 4{,}3\text{ s}$ para $< 0{,}5\text{ s}$ por janela. As derivadas de primeira ($\Delta$) e segunda ($\Delta^2$) ordens são obtidas por convolução com filtros de Savitzky-Golay de largura $9$ pontos ($w_1[i] = i/60$ para $i \in \{-4\dots 4\}$ e $w_2$ quadrático simétrico, com replicação das janelas de borda nos $4$ quadros extremos), compondo a matriz $M \in \mathbb{R}^{39 \times 126}$.
+Para viabilizar execução em tempo real no ESP32-S3, a matriz $13 \times 40$ dos cossenos é pré-computada em Flash (\texttt{MFCC\_DCT}), eliminando chamadas a \texttt{cos()} em dupla precisão emulada. As derivadas de primeira ($\Delta$) e segunda ($\Delta^2$) ordens são obtidas por convolução com filtros de Savitzky-Golay de largura $9$ pontos ($w_1[i] = i/60$ para $i \in \{-4\dots 4\}$ e $w_2$ quadrático simétrico, com replicação das janelas de borda nos $4$ quadros extremos), compondo a matriz $M \in \mathbb{R}^{39 \times 126}$.
 
 \subsection{Filtro de Wiener Casado ao Espectro de Voz e Veto de Ruído}
 O espectro médio de ruído estacionário $\hat{N}[k]$ é estimado em lotes de $8192$ amostras ($0{,}512\text{ s}$, $33$ quadros). Como a potência instantânea de ruído gaussiano em cada bin $k$ segue uma distribuição exponencial ($\sigma = \mu$), calibrações sucessivas são integradas por média móvel exponencial ($\beta = 0{,}3$) e filtradas por um núcleo de suavização de $3$ pontos em frequência ($[0{,}25;\; 0{,}5;\; 0{,}25]$).
@@ -257,12 +257,8 @@ A Figura~\ref{fig:mfcc_fisher} expõe o motivo pelo qual a distância cosseno so
     \label{fig:mfcc_fisher}
 \end{figure}
 
-\subsection{Normalização CMN, Adaptação MAP e Estabilidade Numérica}
-Ao operar quadro a quadro no subespaço de $D = 24$ dimensões $\mathbf{x}_t = [c_1[t]\dots c_{12}[t],\; \Delta c_1[t]\dots \Delta c_{12}[t]]^\top$ (excluindo $c_0$ e $\Delta c_0$ para manter invariância ao ganho), aplica-se a Normalização da Média Cepstral (CMN) em cada janela de $T = 126$ quadros:
-\begin{equation}
-    \tilde{\mathbf{x}}_t = \mathbf{x}_t - \frac{1}{T}\sum_{\tau=0}^{T-1} \mathbf{x}_\tau,
-\end{equation}
-cancelando vieses lineares estacionários de canal e microfone. A distribuição universal de fala é representada por um UBM diagonal com $M = 8$ Gaussianas:
+\subsection{Seleção de Quadros Ativos, Normalização CMN-$c_1$ e Adaptação MAP}
+Antes da classificação, aplica-se um \textbf{VAD em nível de quadro (\textit{Frame-VAD})} selecionando os $70\%$ quadros de maior energia logarítmica $c_0[t]$ ($T' = 88$ quadros ativos por janela de $2\text{ s}$), descartando micropausas articulatórias e consoantes surdas que diluem o LLR e contaminam as estatísticas da janela --- reduzindo simultaneamente em $30\%$ o custo computacional do GMM-UBM. Ao operar quadro a quadro no subespaço de $D = 24$ dimensões $\mathbf{x}_t = [c_1[t]\dots c_{12}[t],\; \Delta c_1[t]\dots \Delta c_{12}[t]]^\top$ (excluindo $c_0$ e $\Delta c_0$ para manter invariância ao ganho), aplica-se a \textbf{CMN seletiva em $c_1$} sobre os $T'$ quadros ativos ($\tilde{x}_{t,1} = x_{t,1} - \frac{1}{T'}\sum_{\tau} x_{\tau,1}$), cancelando o viés dominante de inclinação espectral/canal sem apagar a assinatura anatômica do trato vocal em $c_2\dots c_{12}$. A distribuição universal de fala é representada por um UBM diagonal com $M = 8$ Gaussianas:
 \begin{equation}
     p(\tilde{\mathbf{x}}_t \mid \lambda_{\mathrm{UBM}}) = \sum_{m=1}^{M} w_m\, \mathcal{N}(\tilde{\mathbf{x}}_t \mid \boldsymbol{\mu}_m^{\mathrm{UBM}},\, \boldsymbol{\Sigma}_m).
 \end{equation}
@@ -315,9 +311,9 @@ mapeado para compatibilidade de interface em $d_{\mathrm{eq}}(s) = \mathrm{clip}
 \label{sec:firmware}
 
 \subsection{Integração no Firmware, Memória e Persistência NVS}
-O firmware é estruturado em módulos desacoplados sob FreeRTOS: \texttt{audio\_in} (leitura contínua I2S DMA), \texttt{capture} (VAD passa-banda e agrupamento de $20$ blocos de $100\text{ ms}$), \texttt{mfcc} (processamento DSP e supressão espectral), \texttt{speaker\_db} (modelos GMM-UBM, adaptação MAP e NVS) e \texttt{recvoz\_display} (interface OLED SSD1306 via I2C). Para evitar transbordamento de pilha (\textit{stack overflow}) durante a extração de características na tarefa principal, os vetores intermediários de quadro (\texttt{power[513]}, \texttt{mel[128]}) e os buffers de janela (\texttt{s\_win} com $64\text{ KiB}$ e \texttt{s\_m} com $\approx 20\text{ KiB}$) são alocados estaticamente, e a \textit{stack} da tarefa \texttt{main} foi dimensionada em $8192\text{ bytes}$.
+O firmware é estruturado em módulos desacoplados sob FreeRTOS: \texttt{audio\_in} (leitura contínua I2S DMA), \texttt{capture} (VAD passa-banda e agrupamento de $20$ blocos de $100\text{ ms}$), \texttt{mfcc} (processamento DSP de $40$ bandas Mel e filtro de Wiener casado à voz), \texttt{gmm\_ubm} (componente portátil de inferência GMM-UBM, \textit{Frame-VAD}, CMN-$c_1$ e adaptação MAP), \texttt{speaker\_db} (gerenciamento de locutores e persistência NVS) e \texttt{recvoz\_display} (interface OLED SSD1306 via I2C). Para evitar transbordamento de pilha (\textit{stack overflow}) durante a extração de características na tarefa principal, os vetores intermediários de quadro (\texttt{power[513]}, \texttt{mel[40]}) e os buffers de janela (\texttt{s\_win} com $64\text{ KiB}$ e \texttt{s\_m} com $\approx 20\text{ KiB}$) são alocados estaticamente, e a \textit{stack} da tarefa \texttt{main} foi dimensionada em $8192\text{ bytes}$.
 
-A persistência em NVS (\textit{Non-Volatile Storage}) utiliza versionamento explícito de limiar (\texttt{tauver = 3}) para migrar automaticamente instalações anteriores para $\tau = 0{,}42$. Cada locutor extra matriculado ao vivo ocupa um \textit{slot} contendo nome (\texttt{x\%dn}), vetores médios legados (\texttt{x\%dv}), médias GMM-UBM adaptadas (\texttt{x\%dg}, $768\text{ bytes}$) e máscara de sobrescrita de fábrica (\texttt{ovr}), permitindo substituir um locutor de fábrica pelo seu perfil gravado diretamente no microfone local sem perda de reversibilidade (\texttt{reset}).
+A persistência em NVS (\textit{Non-Volatile Storage}) utiliza versionamento explícito de limiar (\texttt{tauver = 4}) para migrar automaticamente instalações anteriores para $\tau = 0{,}70$ ($d_{\mathrm{eq}} = \mathrm{clip}(1 - \mathrm{LLR}/5, 0, 1)$, exigindo $\mathrm{LLR} \ge +1{,}50$). Cada locutor extra matriculado ao vivo ocupa um \textit{slot} contendo nome (\texttt{x\%dn}), vetores médios legados (\texttt{x\%dv}), médias GMM-UBM adaptadas (\texttt{x\%dg}, $768\text{ bytes}$) e máscara de sobrescrita de fábrica (\texttt{ovr}), permitindo substituir um locutor de fábrica pelo seu perfil gravado diretamente no microfone local sem perda de reversibilidade (\texttt{reset}).
 
 \subsection{Complexidade e Consumo de Recursos no ESP32-S3}
 A Tabela~\ref{tab:recursos} detalha o orçamento estático do GMM-UBM + CMN na CPU do ESP32-S3 ($160\text{ MHz}$). O UBM completo ocupa apenas $1{,}66\text{ KiB}$ em memória flash (\texttt{const}), enquanto a pontuação de um locutor sobre $126$ quadros requer $M \cdot T \cdot D = 24\,192$ operações de diferença quadrática ponderada. Para evitar pico duplo de alocação no \textit{heap} interno, o filtro passa-banda \texttt{filtfilt} opera \textit{in-place} com bordas espelhadas de $33$ amostras na pilha ($264\text{ B}$), economizando $128\text{ KiB}$ de RAM dinâmica. A Tabela~\ref{tab:latencia} apresenta o perfil real de latência e memória medido diretamente na placa via comando serial \texttt{bench 20} (\texttt{esp\_timer\_get\_time}, $N=20$ janelas, $3$ locutores ativos e supressão espectral ligada): a inferência completa pós-captura leva $961{,}8 \pm 17{,}1\text{ ms}$ ($< 1\text{ s}$), preservando $44{,}4\text{ KiB}$ de \textit{heap} livre mínimo e $3{,}95\text{ KiB}$ de margem na pilha de $8\text{ KiB}$ da tarefa principal.
@@ -334,8 +330,8 @@ A Tabela~\ref{tab:recursos} detalha o orçamento estático do GMM-UBM + CMN na C
 \midrule
 Modelo de fundo + \textit{prior} (Flash) & --- & $1{,}66 + 2{,}00\text{ KiB}$ \\
 NVS / locutor & $1092\text{ B}$ ($7{\times}39$) & $768\text{ B}$ ($8{\times}24$) \\
-Operações / locutor & $k$-NN ($23{\times}38$) & $24\,192$ MACs \\
-Binário (\texttt{recvoz-esp.bin}) & $345{,}8\text{ KiB}$ & $351{,}1\text{ KiB}$ ($66\%$ livre) \\
+Operações / locutor & $k$-NN ($30{\times}38$) & $16\,896$ MACs ($88$ q.) \\
+Binário (\texttt{recvoz-esp.bin}) & $345{,}8\text{ KiB}$ & $348{,}2\text{ KiB}$ ($66\%$ livre) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -366,7 +362,7 @@ Margem livre na \textit{stack} \texttt{main} ($8\text{ KiB}$) & $3{,}95\text{ Ki
 \label{sec:resultados}
 
 \subsection{Validação Offline em Conjunto Fechado e Estudo de Ablação}
-A Tabela~\ref{tab:comparacao} e a Figura~\ref{fig:gmm_llr} comparam os classificadores na base de validação inicial ($23$ janelas: $9$ de $S_1$ e $14$ de $S_2$) e na captura ao vivo do ESP32-S3. Todas as $7$ suítes C (\texttt{knn}, \texttt{gmm}, \texttt{mfcc}, \texttt{ns}, \texttt{commands}, \texttt{audio}, \texttt{persistence}) e os $7$ testes Python atingiram $100\%$ de aprovação. A Tabela~\ref{tab:ablacao} organiza o estudo de ablação sobre número de componentes $M$, normalização cepstral, supressão espectral e uso de derivadas temporais.
+A Tabela~\ref{tab:comparacao} e a Figura~\ref{fig:gmm_llr} comparam os classificadores na base de validação inicial ($23$ janelas: $9$ de $S_1$ e $14$ de $S_2$) e na captura ao vivo do ESP32-S3. Todas as $7$ suítes C (\texttt{knn}, \texttt{gmm}, \texttt{mfcc}, \texttt{ns}, \texttt{commands}, \texttt{audio}, \texttt{persistence}) e os $9$ testes Python atingiram $100\%$ de aprovação. A Tabela~\ref{tab:ablacao} organiza o estudo de ablação sobre número de componentes $M$, normalização cepstral, supressão espectral e uso de derivadas temporais.
 
 \begin{table}[t]
 \centering
@@ -390,21 +386,21 @@ ESP32 ao vivo ($S_1$) & $d$: $0{,}022$ vs.\ $0{,}027$ & $\mathrm{LLR}$: $+0{,}35
 \centering
 \scriptsize
 \setlength{\tabcolsep}{2.6pt}
-\caption{Estudo de ablação do GMM-UBM interno em conjunto aberto (seed 42; $10$ janelas conhecidas e $34$ de impostores inéditos).}
+\caption{Estudo de ablação do GMM-UBM interno em conjunto aberto (seed 42; $10$ janelas conhecidas e $34$ de impostores inéditos, banco Mel 40 + \textit{Frame-VAD} 70\%).}
 \label{tab:ablacao}
 \begin{tabular}{lcccc}
 \toprule
 \textbf{Configuração} & \textbf{Acc} & \textbf{FAR} & \textbf{FRR} & \textbf{EER} \\
 \midrule
-\textbf{$M{=}8$, CMN, $c{+}\Delta$, Wiener Voz} & $\mathbf{100\%}$ & $\mathbf{35{,}3\%}$ & $\mathbf{40{,}0\%}$ & $\mathbf{28{,}8\%}$ \\
-$M{=}4$, CMN, $c{+}\Delta$, Wiener Voz & $100\%$ & $35{,}3\%$ & $50{,}0\%$ & $52{,}9\%$ \\
-$M{=}12$, CMN, $c{+}\Delta$, Wiener Voz & $100\%$ & $29{,}4\%$ & $50{,}0\%$ & $39{,}1\%$ \\
-$M{=}16$, CMN, $c{+}\Delta$, Wiener Voz & $100\%$ & $23{,}5\%$ & $60{,}0\%$ & $48{,}5\%$ \\
-$M{=}32$, CMN, $c{+}\Delta$, Wiener Voz & $100\%$ & $20{,}6\%$ & $80{,}0\%$ & $40{,}6\%$ \\
-Sem CMN ($M{=}8$, $c{+}\Delta$, Wiener Voz) & $100\%$ & $38{,}2\%$ & $100\%$ & $68{,}8\%$ \\
-Com CMVN ($M{=}8$, $c{+}\Delta$, Wiener Voz) & $100\%$ & $41{,}2\%$ & $40{,}0\%$ & $34{,}7\%$ \\
-Só estáticos ($M{=}8$, CMN, $c_1\dots c_{12}$) & $90{,}0\%$ & $44{,}1\%$ & $60{,}0\%$ & $60{,}9\%$ \\
-Sem NS ($M{=}8$, CMN, $c{+}\Delta$, NS \texttt{off}) & $100\%$ & $29{,}4\%$ & $50{,}0\%$ & $36{,}2\%$ \\
+$M{=}8$, CMN, $c{+}\Delta$, Wiener Voz & $100\%$ & $35{,}3\%$ & $50{,}0\%$ & $40{,}6\%$ \\
+$M{=}4$, CMN, $c{+}\Delta$, Wiener Voz & $100\%$ & $32{,}4\%$ & $50{,}0\%$ & $52{,}9\%$ \\
+$M{=}12$, CMN, $c{+}\Delta$, Wiener Voz & $90{,}0\%$ & $44{,}1\%$ & $40{,}0\%$ & $40{,}6\%$ \\
+$M{=}16$, CMN, $c{+}\Delta$, Wiener Voz & $100\%$ & $35{,}3\%$ & $50{,}0\%$ & $34{,}1\%$ \\
+$M{=}32$, CMN, $c{+}\Delta$, Wiener Voz & $100\%$ & $50{,}0\%$ & $20{,}0\%$ & $39{,}1\%$ \\
+Sem CMN ($M{=}8$, $c{+}\Delta$, Wiener Voz) & $100\%$ & $100\%$ & $20{,}0\%$ & $76{,}8\%$ \\
+Com CMVN ($M{=}8$, $c{+}\Delta$, Wiener Voz) & $100\%$ & $29{,}4\%$ & $40{,}0\%$ & $29{,}7\%$ \\
+Só estáticos ($M{=}8$, CMN, $c_1\dots c_{12}$) & $90{,}0\%$ & $23{,}5\%$ & $70{,}0\%$ & $39{,}1\%$ \\
+Sem NS ($M{=}8$, CMN, $c{+}\Delta$, NS \texttt{off}) & $100\%$ & $26{,}5\%$ & $40{,}0\%$ & $29{,}7\%$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -419,25 +415,25 @@ Sem NS ($M{=}8$, CMN, $c{+}\Delta$, NS \texttt{off}) & $100\%$ & $29{,}4\%$ & $5
 \subsection{Avaliação em Conjunto Aberto (Open-Set: FAR, FRR e EER) e UBM Externo}
 Para validar rigorosamente a rejeição de locutores desconhecidos sem vazamento de sessão nem de locutor, coletou-se uma base anonimizada de $6$ locutores masculinos no INMP441 ($19$ sessões limpas com piso $\mathrm{RMS} \le 67$, $102$ janelas de $2\text{ s}$), particionada em três conjuntos disjuntos: (i) $2$ locutores conhecidos ($S_1$ com $3$ sessões e $S_2$ com $4$ sessões, $30$ janelas ao todo, separando treino, calibração de $\tau^*$ e teste por sessão inteira); (ii) $2$ impostores exclusivos de calibração ($U_1, U_2$, $38$ janelas); e (iii) $2$ impostores inéditos de teste ($U_3, U_4$, $34$ janelas). Adicionalmente, treinou-se um \textbf{UBM externo} ($M=8, D=24$) sobre $350$ janelas ($44\,100$ quadros) do corpus público \textit{Google FLEURS PT-BR}~\cite{conneau2023}, embarcado na placa com CMN seletiva em $c_1$ e mapeamento $d_{\mathrm{eq}} = \mathrm{clip}(1 - \mathrm{LLR}/5, 0, 1)$ ($\tau = 0{,}70$, \texttt{tauver = 4}).
 
-A Tabela~\ref{tab:openset} compara todos os modelos no \textit{split} principal (seed 42) e na média $\pm$ desvio padrão sobre $10$ partições únicas de sessão; as Figuras~\ref{fig:openset_roc} e~\ref{fig:openset_llr} exibem as curvas ROC e a separação de LLR. Os resultados evidenciam três conclusões centrais: (1) na ablação do GMM-UBM interno (Tabela~\ref{tab:ablacao}), a combinação $M=8$, CMN, $c+\Delta$ e filtro de Wiener casado à voz alcança o melhor EER ($28{,}8\%$) frente a todas as demais variações (sem CMN: $68{,}8\%$; só estáticos: $60{,}9\%$; sem NS: $36{,}2\%$; CMVN: $34{,}7\%$); (2) com o \textbf{UBM externo FLEURS PT-BR}, a acurácia fechada atinge $\mathbf{100{,}0 \pm 0{,}0\%}$ em todas as $10$ partições de sessão, com EER médio de $\mathbf{25{,}8 \pm 8{,}7\%}$ (sem CMN) e $\mathbf{30{,}2 \pm 9{,}8\%}$ com \textbf{CMN seletiva em $c_1$} (reduzindo a FRR média para apenas $\mathbf{7{,}7 \pm 5{,}2\%}$, frente a $44{,}2\%$ no $k$-NN e $43{,}9\%$ no Centroide); e (3) o conjunto completo ocupa apenas $1{,}66\text{ KiB}$ para o UBM, $2{,}0\text{ KiB}$ para o \textit{prior} vocal em Flash e $768\text{ B}$/locutor na NVS.
+A Tabela~\ref{tab:openset} compara todos os modelos na média $\pm$ desvio padrão sobre $10$ partições únicas de sessão; as Figuras~\ref{fig:openset_roc} e~\ref{fig:openset_llr} exibem as curvas ROC e a separação de LLR. Os resultados justificam a adoção do \textbf{GMM-UBM (FLEURS PT-BR)} sob critérios tanto estatísticos quanto embarcados: (1) é o único paradigma a atingir $\mathbf{100{,}0 \pm 0{,}0\%}$ de acurácia fechada em todas as $10$ partições, o maior \textbf{AUC-ROC} ($\mathbf{84{,}6 \pm 4{,}4\%}$ com CMN-$c_1$ e $84{,}3 \pm 5{,}3\%$ sem CMN) e o menor \textbf{EER} ($\mathbf{20{,}8 \pm 7{,}7\%}$ sem CMN e $\mathbf{21{,}8 \pm 3{,}6\%}$ com CMN-$c_1$ --- menor variância entre todos os classificadores); (2) supera tanto classificadores baseados em vetores médios ($k$-NN: $79{,}4\%$ AUC, Centroide: $75{,}8\%$, SVM-RBF: $64{,}1\%$, que colapsam derivadas $\Delta$ e não permitem CMN) quanto o GMM independente sem UBM ($77{,}4\%$ AUC, $\mathrm{FRR}=49{,}5\%$, sem normalização por fundo) e o UBM interno de apenas $2$ locutores ($56{,}6\%$ AUC); e (3) viabiliza cadastro ao vivo em passo único (MAP) na placa sem re-treino global (inviável em SVM/redes neurais), ocupando apenas $1{,}66\text{ KiB}$ para o UBM, $2{,}0\text{ KiB}$ para o \textit{prior} vocal em Flash e $768\text{ B}$/locutor na NVS.
 
 \begin{table}[t]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{1.5pt}
-\caption{Comparação em conjunto aberto ($6$ locutores limpos; $10$ splits de sessão).}
+\setlength{\tabcolsep}{2.2pt}
+\caption{Comparação entre classificadores em conjunto aberto ($6$ locutores limpos; média $\pm$ DP em $10$ splits de sessão).}
 \label{tab:openset}
-\begin{tabular}{lccccc}
+\begin{tabular}{lcccc}
 \toprule
-\textbf{Modelo} & \textbf{Acc (10s)} & \textbf{FAR (s42)} & \textbf{FRR (10s)} & \textbf{EER (s42)} & \textbf{EER (10s)} \\
+\textbf{Modelo} & \textbf{Acc} & \textbf{AUC-ROC $\uparrow$} & \textbf{FRR} & \textbf{EER $\downarrow$} \\
 \midrule
-Centroide Cosseno & $94{,}4\%$ & $8{,}8\%$ & $43{,}9\%$ & $39{,}1\%$ & $31{,}6 \pm 10{,}9\%$ \\
-$k$-NN Cosseno ($k{=}3$) & $94{,}1\%$ & $64{,}7\%$ & $44{,}2\%$ & $42{,}1\%$ & $30{,}0 \pm 9{,}5\%$ \\
-SVM (RBF) & $77{,}5\%$ & $35{,}3\%$ & $64{,}6\%$ & $52{,}9\%$ & $44{,}9 \pm 10{,}8\%$ \\
-GMM Indep.\ + CMN & $100\%$ & $0{,}0\%$ & $64{,}4\%$ & $59{,}4\%$ & $46{,}5 \pm 11{,}6\%$ \\
-GMM-UBM + CMN (2 loc.) & $97{,}8\%$ & $35{,}3\%$ & $36{,}9\%$ & $28{,}8\%$ & $51{,}8 \pm 17{,}0\%$ \\
-\textbf{GMM-UBM (FLEURS, CMN-$c_1$)} & $\mathbf{100\%}$ & $70{,}6\%$ & $\mathbf{7{,}7\%}$ & $42{,}1\%$ & $30{,}2 \pm 9{,}8\%$ \\
-\textbf{GMM-UBM (FLEURS, s/ CMN)} & $\mathbf{100\%}$ & $35{,}3\%$ & $22{,}9\%$ & $37{,}6\%$ & $\mathbf{25{,}8 \pm 8{,}7\%}$ \\
+Centroide Cosseno & $98{,}9\%$ & $75{,}8 \pm 8{,}4\%$ & $43{,}4\%$ & $25{,}7 \pm 9{,}5\%$ \\
+$k$-NN Cosseno ($k{=}3$) & $97{,}8\%$ & $79{,}4 \pm 8{,}1\%$ & $32{,}6\%$ & $21{,}3 \pm 5{,}9\%$ \\
+SVM (RBF) & $84{,}4\%$ & $64{,}1 \pm 8{,}6\%$ & $60{,}9\%$ & $43{,}7 \pm 10{,}7\%$ \\
+GMM Indep.\ + CMN & $97{,}9\%$ & $77{,}4 \pm 7{,}5\%$ & $49{,}5\%$ & $28{,}7 \pm 8{,}8\%$ \\
+GMM-UBM (UBM 2 loc.) & $96{,}7\%$ & $56{,}6 \pm 17{,}4\%$ & $27{,}5\%$ & $44{,}7 \pm 15{,}7\%$ \\
+\textbf{GMM-UBM (FLEURS, CMN-$c_1$)} & $\mathbf{100\%}$ & $\mathbf{84{,}6 \pm 4{,}4\%}$ & $24{,}3\%$ & $\mathbf{21{,}8 \pm 3{,}6\%}$ \\
+\textbf{GMM-UBM (FLEURS, s/ CMN)} & $\mathbf{100\%}$ & $84{,}3 \pm 5{,}3\%$ & $\mathbf{22{,}6\%}$ & $\mathbf{20{,}8 \pm 7{,}7\%}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -495,10 +491,10 @@ Ruído puro & --- & --- & --- & \textit{[TODO]} & \texttt{RUIDO} \\
 
 Para transparência metodológica, destacam-se as seguintes limitações do protótipo atual:
 \begin{description}
-    \item[Tamanho da base e descasamento de microfone no UBM] Embora o UBM externo (\textit{Google FLEURS PT-BR}) com CMN seletiva em $c_1$ tenha obtido o menor EER médio ($37{,}7 \pm 10{,}6\%$) entre os sete classificadores (Tabela~\ref{tab:openset}), o treino de $S_1$ com apenas $1$ sessão ($10\text{--}12\text{ s}$) e o descasamento acústico entre os microfones do corpus FLEURS e o MEMS INMP441 ainda elevam o EER em \textit{open-set} entre vozes masculinas semelhantes. Ampliar o número de sessões de matrícula e adaptar o UBM com mais falantes no próprio INMP441 tende a reduzir ainda mais a FAR/FRR.
+    \item[Tamanho da base e descasamento de microfone no UBM] Embora o UBM externo (\textit{Google FLEURS PT-BR}) com banco de $40$ filtros Mel, \textit{Frame-VAD} e CMN-$c_1$ tenha obtido o maior AUC-ROC ($84{,}6 \pm 4{,}4\%$) e EER de $21{,}8 \pm 3{,}6\%$ ($20{,}8 \pm 7{,}7\%$ sem CMN) entre os classificadores (Tabela~\ref{tab:openset}), o treino de $S_1$ com apenas $1$ sessão ($10\text{--}12\text{ s}$) e o descasamento acústico entre os microfones do corpus FLEURS e o MEMS INMP441 ainda elevam o EER em \textit{open-set} entre vozes masculinas semelhantes. Ampliar o número de sessões de matrícula e adaptar o UBM com mais falantes no próprio INMP441 tende a reduzir ainda mais a FAR/FRR.
     \item[Sensibilidade a prosódia e distância] Como ilustrado na fala \#3 da Tabela~\ref{tab:live_esp}, variações bruscas de volume, distância ou fala sussurrada podem derrubar o LLR abaixo de $\tau$ mesmo quando o ranking relativo permanece correto.
     \item[Atomicidade da persistência NVS] Cada locutor cadastrado grava múltiplas chaves NVS (\texttt{x\%dn}, \texttt{x\%dv}, \texttt{x\%dg}). Embora o estado em RAM só seja atualizado após sucesso de escrita e \textit{commit}, uma interrupção abrupta de energia entre chaves não constitui transação atômica; versões futuras podem consolidar o cadastro em um único \textit{blob} versionado.
-    \item[Reprodutibilidade] Todo o código-fonte do firmware ESP-IDF, o pacote Python, as suítes de teste no host ($7$ suítes C e $7$ testes Python executáveis via \texttt{make test}) e os scripts de avaliação (\texttt{make evaluate}) estão disponíveis publicamente em \url{https://github.com/adrianviniciuscs/recvoz}.
+    \item[Reprodutibilidade] Todo o código-fonte do firmware ESP-IDF, o pacote Python, as suítes de teste no host ($7$ suítes C e $9$ testes Python executáveis via \texttt{make test}) e os scripts de avaliação (\texttt{make evaluate}) estão disponíveis publicamente em \url{https://github.com/adrianviniciuscs/recvoz}.
 \end{description}
 
 \section{Conclusão}

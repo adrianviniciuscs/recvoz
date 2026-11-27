@@ -26,7 +26,7 @@ extern "C" {
 #define MFCC_HOP 256
 #define MFCC_N_MFCC 13
 #define MFCC_DIM 39
-#define MFCC_N_MELS 128
+#define MFCC_N_MELS 40
 #define MFCC_WIN_SAMPLES 32000         ///< janela de decisão: 2 s
 #define MFCC_N_FRAMES (1 + MFCC_WIN_SAMPLES / MFCC_HOP)  ///< 126 (center + zero-pad)
 #define MFCC_MIN_VOICE_MOD 26.0f       ///< energia mínima de modulação articulatória (sem ns)

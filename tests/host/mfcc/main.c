@@ -49,18 +49,18 @@ int main(int argc, char **argv) {
     snprintf(p, sizeof p, "%sexpected_pow37.bin", d);
     float *e_pow = load(p, 513 * 4);
     snprintf(p, sizeof p, "%sexpected_mel37.bin", d);
-    float *e_mel = load(p, 128 * 4);
+    float *e_mel = load(p, MFCC_N_MELS * 4);
     snprintf(p, sizeof p, "%sexpected_db37.bin", d);
-    float *e_db = load(p, 128 * 4);
-    float pow513[513], mel128[128], db128[128];
-    mfcc_debug_frame(x, N, 37, pow513, mel128, db128);
+    float *e_db = load(p, MFCC_N_MELS * 4);
+    float pow513[513], mel_f[MFCC_N_MELS], db_f[MFCC_N_MELS];
+    mfcc_debug_frame(x, N, 37, pow513, mel_f, db_f);
     // razão (fator de escala) e erro relativo
     double num = 0, den = 0;
     for (int i = 0; i < 513; i++) { num += (double)e_pow[i] * pow513[i]; den += (double)pow513[i] * pow513[i]; }
     printf("pow37 ratio(lib/c)=%.4f  maxabs=%.3g\n", num / den, maxabs_f(pow513, e_pow, 513, &at));
     printf("pow37 c[1:6]: %.3g %.3g %.3g %.3g %.3g\n", pow513[1], pow513[2], pow513[3], pow513[4], pow513[5]);
     printf("mel37 maxabs=%.3g  db37 maxabs=%.3g\n",
-           maxabs_f(mel128, e_mel, 128, NULL), maxabs_f(db128, e_db, 128, NULL));
+           maxabs_f(mel_f, e_mel, MFCC_N_MELS, NULL), maxabs_f(db_f, e_db, MFCC_N_MELS, NULL));
 
     // 2. pipeline completa
     float *out = malloc(DIM * NF * 4);

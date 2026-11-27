@@ -131,23 +131,24 @@ int main(void)
         free(pcm); free(o0); free(o1); free(zero);
     }
 
-    // ---- T6: funcional — seno + ruído branco, perfil do ruído puro ----
+    // ---- T6: funcional — fala real (fixture) + ruído branco, perfil do ruído puro ----
     // Ruído estacionário conhecido: a distância ao limpo tem que DIMINUIR.
     {
+        FILE *f = fopen("../../fixtures/test_pcm.bin", "rb");
+        if (!f) { printf("FALTA ../../fixtures/test_pcm.bin (rode tools/export_mfcc.py)\n"); return 2; }
         int16_t *clean = malloc(N * 2), *noisy = malloc(N * 2), *nz = malloc(NCAL * 2);
+        if (fread(clean, 1, N * 2, f) != N * 2) { printf("SHORT test_pcm.bin\n"); return 2; }
+        fclose(f);
         for (int i = 0; i < NCAL; i++) {
             float w = (uni01() * 2.0f - 1.0f) * 3000.0f;
             nz[i] = (int16_t)w;
         }
         for (int i = 0; i < N; i++) {
-            double t = (double)i / 16000.0;
-            double s = 8000.0 * (0.7 * sin(2 * M_PI * 440.0 * t) + 0.3 * sin(2 * M_PI * 880.0 * t));
             float w = (uni01() * 2.0f - 1.0f) * 3000.0f;
-            double v = s + w;
+            double v = (double)clean[i] + w;
             if (v > 32767) v = 32767;
             if (v < -32768) v = -32768;
             noisy[i] = (int16_t)v;
-            clean[i] = (int16_t)(s > 32767 ? 32767 : s < -32768 ? -32768 : s);
         }
         float *oc = malloc(DIM * NF * 4), *oraw = malloc(DIM * NF * 4), *ons = malloc(DIM * NF * 4);
         float mc[DIM], mr[DIM], mn[DIM];
