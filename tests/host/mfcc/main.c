@@ -82,8 +82,8 @@ int main(int argc, char **argv) {
         printf("  outlier d=%d t=%d err=%.3g mine=%.6g ref=%.6g\n",
                td[q], tt[q], te[q], out[td[q] * NF + tt[q]], exp_m[td[q] * NF + tt[q]]);
     // por bloco
-    for (int b = 0; b < 3; b++) {
-        const char *n = b == 0 ? "mfcc " : b == 1 ? "delta " : "delta2";
+    for (int b = 0; b < 2; b++) {
+        const char *n = b == 0 ? "mfcc " : "delta ";
         printf("  %s maxabs=%.3g\n", n, maxabs_f(out + b*MFCC_N_MFCC*NF, exp_m + b*MFCC_N_MFCC*NF, MFCC_N_MFCC*NF, NULL));
     }
 

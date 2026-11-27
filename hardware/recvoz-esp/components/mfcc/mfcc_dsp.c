@@ -1,15 +1,5 @@
-// mfcc_dsp — MFCC 39-dim numericamente compatível com a referência Python (librosa 1.x).
-// Portátil: só libc + libm. Sem dependências do ESP-IDF.
-//
-// Convenções replicadas (verificadas no fonte do librosa/scipy instalados):
-//  - STFT: center=True, zero-pad de n_fft/2, Hann PERIÓDICA (fftbins),
-//    rfft SEM escala (scipy.fft default 'backward').
-//  - Mel: 128 bandas slaney, fmax = sr/2 (tabela exata em mfcc_tables.h).
-//  - Log: 10*log10(max(e,1e-10)), clip em max-80 (ref=1.0, top_db=80).
-//  - DCT-II ortonormal (scipy), 13 primeiros.
-//  - Deltas: Savitzky-Golay largura 9 (derivada 1a poly1 / 2a poly2,
-//    bordas = ajuste na 1a/última janela — constante p/ estes graus,
-//    logo mesmas janelas de 9 com pesos do interior).
+// mfcc_dsp — MFCC 34-dim (17 estáticos + 17 Δ, sem Δ²), banco Mel HTK 40.
+// Portátil: no ESP32-S3 usa SIMD (esp-dsp); no host C usa fallback libc + libm.
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,13 +7,18 @@
 #include "mfcc_tables.h"
 #include "noise_sup.h"
 
+#ifdef ESP_PLATFORM
+#include "esp_dsp.h"
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
 #define PAD (MFCC_N_FFT / 2)  // 512 zeros de cada lado (center)
 
-// ---------- FFT radix-2 complexa, in-place, SEM escala ----------
+#ifndef ESP_PLATFORM
+// ---------- FFT radix-2 complexa, in-place, SEM escala (fallback host C) ----------
 static void fft_fwd(float *re, float *im, int n)
 {
     for (int i = 1, j = 0; i < n; i++) {
@@ -52,6 +47,7 @@ static void fft_fwd(float *re, float *im, int n)
         }
     }
 }
+#endif
 
 // ---------- passa-banda Butter via SOS, ida-e-volta (filtfilt) ----------
 // Extensão ímpar (scipy 'odd'): [2x0-x[e-1..x1], x, 2x[n-1]-x[n-2..]],
@@ -112,9 +108,29 @@ static void hann_init(void)
 // Um frame -> potência[513] (rfft sem escala, Hann periódica, zero-pad).
 static void frame_power(const float *x, int n, int t, float *power)
 {
-    static float re[MFCC_N_FFT], im[MFCC_N_FFT];
     hann_init();
     int start = t * MFCC_HOP - PAD; // zero-pad fora de [0, n)
+#ifdef ESP_PLATFORM
+    static float fft_buf[MFCC_N_FFT * 2];
+    static int s_fft_ok;
+    if (!s_fft_ok) {
+        dsps_fft2r_init_fc32(NULL, MFCC_N_FFT);
+        s_fft_ok = 1;
+    }
+    for (int i = 0; i < MFCC_N_FFT; i++) {
+        int idx = start + i;
+        float s = (idx < 0 || idx >= n) ? 0.0f : x[idx];
+        fft_buf[2 * i]     = s * s_hann[i];
+        fft_buf[2 * i + 1] = 0.0f;
+    }
+    dsps_fft2r_fc32(fft_buf, MFCC_N_FFT);
+    dsps_bit_rev_fc32(fft_buf, MFCC_N_FFT);
+    for (int b = 0; b <= MFCC_N_FFT / 2; b++) {
+        float re = fft_buf[2 * b], im = fft_buf[2 * b + 1];
+        power[b] = re * re + im * im;
+    }
+#else
+    static float re[MFCC_N_FFT], im[MFCC_N_FFT];
     for (int i = 0; i < MFCC_N_FFT; i++) {
         int idx = start + i;
         float s = (idx < 0 || idx >= n) ? 0.0f : x[idx];
@@ -124,6 +140,7 @@ static void frame_power(const float *x, int n, int t, float *power)
     fft_fwd(re, im, MFCC_N_FFT);
     for (int b = 0; b <= MFCC_N_FFT / 2; b++)
         power[b] = re[b] * re[b] + im[b] * im[b];
+#endif
 }
 
 static void mel_apply(const float *power, float *mel)
@@ -132,8 +149,12 @@ static void mel_apply(const float *power, float *mel)
         const float *w = MFCC_MEL_W[m];
         int b = MFCC_MEL_START[m];
         float acc = 0.0f;
+#ifdef ESP_PLATFORM
+        dsps_dotprod_f32(power + b, w, &acc, MFCC_MEL_LEN[m]);
+#else
         for (int i = 0; i < MFCC_MEL_LEN[m]; i++)
             acc += power[b + i] * w[i];
+#endif
         mel[m] = acc;
     }
 }
@@ -163,12 +184,16 @@ static void frame_mfcc(const float *x, int n, int t, float *out13)
     mel_apply(power, mel);
     mel_to_db(mel);
 
-    // DCT-II ortho via tabela (dot float; o cos em double levava ~4 s no S3).
+    // DCT-II ortho via tabela (dot float; SIMD esp-dsp no ESP32-S3).
     for (int k = 0; k < MFCC_N_MFCC; k++) {
         const float *row = MFCC_DCT[k];
         float s = 0.0f;
+#ifdef ESP_PLATFORM
+        dsps_dotprod_f32(row, mel, &s, MFCC_N_MELS);
+#else
         for (int nn = 0; nn < MFCC_N_MELS; nn++)
             s += row[nn] * mel[nn];
+#endif
         out13[k] = s;
     }
 }
@@ -183,19 +208,17 @@ void mfcc_debug_frame(const float *x, int n, int t,
     mel_to_db(db128);
 }
 
-// Savitzky-Golay largura 9: janela = 9 1os / 9 ultimos / centrada.
-static void sg_delta(const float *in13xT, int nfr, float *out13xT, int order2)
+// Savitzky-Golay 1a derivada largura 9: janela = 9 1os / 9 ultimos / centrada.
+static void sg_delta1(const float *inKxT, int nfr, float *outKxT)
 {
     static const float W1[9] = {-4, -3, -2, -1, 0, 1, 2, 3, 4};
     for (int d = 0; d < MFCC_N_MFCC; d++) {
         for (int t = 0; t < nfr; t++) {
             int base = t < 4 ? 0 : (t > nfr - 5 ? nfr - 9 : t - 4);
-            double acc = 0.0;
-            for (int i = 0; i < 9; i++) {
-                float w = order2 ? MFCC_SG2[i] : W1[i] / 60.0f;
-                acc += w * in13xT[d * nfr + base + i];
-            }
-            out13xT[d * nfr + t] = (float)acc;
+            float acc = 0.0f;
+            for (int i = 0; i < 9; i++)
+                acc += (W1[i] / 60.0f) * inKxT[d * nfr + base + i];
+            outKxT[d * nfr + t] = acc;
         }
     }
 }
@@ -210,23 +233,16 @@ int mfcc_process_n(const int16_t *pcm, int n, float *out)
     if (!pcm || !out || n % MFCC_HOP) return -1;
     int nfr = 1 + n / MFCC_HOP;
     float *x = (float *)malloc(n * sizeof(float));
-    float *base = (float *)malloc(MFCC_N_MFCC * nfr * sizeof(float));
-    float *d1 = (float *)malloc(MFCC_N_MFCC * nfr * sizeof(float));
-    float *d2 = (float *)malloc(MFCC_N_MFCC * nfr * sizeof(float));
-    if (!x || !base || !d1 || !d2) { free(x); free(base); free(d1); free(d2); return -1; }
+    if (!x) return -1;
     for (int i = 0; i < n; i++) x[i] = pcm[i] / 32768.0f;
     mfcc_bandpass(x, n);
     float fr[MFCC_N_MFCC];
     for (int t = 0; t < nfr; t++) {
         frame_mfcc(x, n, t, fr);
-        for (int d = 0; d < MFCC_N_MFCC; d++) base[d * nfr + t] = fr[d];
+        for (int d = 0; d < MFCC_N_MFCC; d++) out[d * nfr + t] = fr[d];
     }
-    sg_delta(base, nfr, d1, 0);
-    sg_delta(base, nfr, d2, 1);
-    memcpy(out, base, MFCC_N_MFCC * nfr * sizeof(float));
-    memcpy(out + MFCC_N_MFCC * nfr, d1, MFCC_N_MFCC * nfr * sizeof(float));
-    memcpy(out + 2 * MFCC_N_MFCC * nfr, d2, MFCC_N_MFCC * nfr * sizeof(float));
-    free(x); free(base); free(d1); free(d2);
+    free(x);
+    sg_delta1(out, nfr, out + MFCC_N_MFCC * nfr);
     return nfr;
 }
 

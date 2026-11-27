@@ -25,7 +25,7 @@ extern "C" {
 #define MFCC_N_FFT 1024
 #define MFCC_HOP 256
 #define MFCC_N_MFCC 17
-#define MFCC_DIM 51
+#define MFCC_DIM 34
 #define MFCC_N_MELS 40
 #define MFCC_WIN_SAMPLES 32000         ///< janela de decisão: 2 s
 #define MFCC_N_FRAMES (1 + MFCC_WIN_SAMPLES / MFCC_HOP)  ///< 126 (center + zero-pad)

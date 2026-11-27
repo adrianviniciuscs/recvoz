@@ -110,7 +110,7 @@ Em contrapartida, o GMM-UBM com covariâncias diagonais e adaptação MAP restri
         \node[block, right=of mic] (bp) {DC Blocker +\\Butterworth BP};
         \node[block, right=of bp] (vad) {VAD Adaptativo\\($\mathrm{SNR} \ge +6$ dB)};
         \node[block, right=of vad] (stft) {STFT + Wiener\\Casado à Voz};
-        \node[block, right=of stft] (mfcc) {Mel HTK (40)\\17c + $\Delta, \Delta^2$};
+        \node[block, right=of stft] (mfcc) {Mel HTK (40)\\17c + $\Delta$ (SIMD)};
         \node[ctrl, right=of mfcc] (veto) {Veto de Ruído\\($\mathrm{mod}$ + âncora)};
 
         \node[block, below=7mm of veto] (cmn) {Frame-VAD (70\%)\\+ CMN-$c_1$ ($D{=}32$)};
@@ -182,7 +182,7 @@ Após compressão logarítmica $L_0[t,m] = 10\log_{10}(\max(E_{\mathrm{mel}}[t,m
 \begin{equation}
     c_n[t] = \sqrt{\frac{2-\delta_{n,0}}{M_{\mathrm{mel}}}} \sum_{m=0}^{M_{\mathrm{mel}}-1} L[t, m] \cos\!\left(\frac{\pi n (2m+1)}{2 M_{\mathrm{mel}}}\right).
 \end{equation}
-Para viabilizar execução em tempo real no ESP32-S3, a matriz $17 \times 40$ dos cossenos é pré-computada em Flash (\texttt{MFCC\_DCT}), eliminando chamadas a \texttt{cos()} em dupla precisão emulada. As derivadas de primeira ($\Delta$) e segunda ($\Delta^2$) ordens são obtidas por convolução com filtros de Savitzky-Golay de largura $9$ pontos ($w_1[i] = i/60$ para $i \in \{-4\dots 4\}$ e $w_2$ quadrático simétrico, com replicação das janelas de borda nos $4$ quadros extremos), compondo a matriz $M \in \mathbb{R}^{51 \times 126}$.
+Para viabilizar execução em tempo real no ESP32-S3, a FFT de $1024$ pontos, o banco Mel esparso e o produto interno da matriz DCT ($17 \times 40$ pré-computada em Flash, \texttt{MFCC\_DCT}) utilizam instruções SIMD PIE via biblioteca \texttt{esp-dsp} (\texttt{dsps\_fft2r\_fc32}, \texttt{dsps\_dotprod\_f32}). Como o classificador GMM-UBM opera sobre $c_1\dots c_{16}$ e $\Delta c_1\dots \Delta c_{16}$, apenas a derivada de primeira ordem ($\Delta$) é calculada por filtro de Savitzky-Golay de largura $9$ pontos ($w_1[i] = i/60$ para $i \in \{-4\dots 4\}$), eliminando $\Delta^2$ e alocação de buffers intermediários e compondo a matriz compacta $M \in \mathbb{R}^{34 \times 126}$.
 
 \subsection{Filtro de Wiener Casado ao Espectro de Voz e Veto de Ruído}
 O espectro médio de ruído estacionário $\hat{N}[k]$ é estimado em lotes de $8192$ amostras ($0{,}512\text{ s}$, $33$ quadros). Como a potência instantânea de ruído gaussiano em cada bin $k$ segue uma distribuição exponencial ($\sigma = \mu$), calibrações sucessivas são integradas por média móvel exponencial ($\beta = 0{,}3$) e filtradas por um núcleo de suavização de $3$ pontos em frequência ($[0{,}25;\; 0{,}5;\; 0{,}25]$).
@@ -326,9 +326,9 @@ A Tabela~\ref{tab:recursos} detalha o orçamento estático do GMM-UBM + CMN na C
 \textbf{Componente} & \textbf{MFCC + $k$-NN} & \textbf{GMM-UBM + CMN} \\
 \midrule
 Modelo de fundo + \textit{prior} (Flash) & --- & $2{,}19 + 2{,}00\text{ KiB}$ \\
-NVS / locutor & $1428\text{ B}$ ($7{\times}51$) & $1024\text{ B}$ ($8{\times}32$) \\
-Operações / locutor & $k$-NN ($30{\times}50$) & $22\,528$ MACs ($88$ q.) \\
-Binário (\texttt{recvoz-esp.bin}) & $345{,}8\text{ KiB}$ & $348{,}8\text{ KiB}$ ($66\%$ livre) \\
+NVS / locutor & $952\text{ B}$ ($7{\times}34$) & $1024\text{ B}$ ($8{\times}32$) \\
+Operações / locutor & $k$-NN ($30{\times}33$) & $22\,528$ MACs ($88$ q.) \\
+Binário (\texttt{recvoz-esp.bin}) & $345{,}8\text{ KiB}$ & $364{,}1\text{ KiB}$ ($64\%$ livre) \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -10,12 +10,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-import librosa
 import numpy as np
 from scipy import signal
 from sklearn.mixture import GaussianMixture
 from recvoz.features import (TARGET_SR, VOICE_LOW, VOICE_HIGH, N_FFT, HOP_LENGTH,
-                             N_MFCC, N_MELS, WIN_SAMPLES, pipeline, load_audio, load_dataset)
+                             N_MFCC, N_MELS, MFCC_DIM, WIN_SAMPLES, mel_filterbank,
+                             power, pipeline, load_audio, load_dataset)
 
 
 def C(value):
@@ -42,8 +42,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
     zi = signal.sosfilt_zi(sos)
     assert sos.shape == (5, 6), sos.shape
 
-    mel = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS,
-                              fmin=0.0, fmax=8000.0, htk=True, norm="slaney")
+    mel = mel_filterbank(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS, fmin=0.0, fmax=8000.0)
     assert mel.shape == (N_MELS, 513), mel.shape
     # Pesos exatos (CSR): triângulos amostrados não zeram nas bordas,
     # então copiamos os valores em vez de reconstruir rampas.
@@ -53,10 +52,6 @@ def generate(staging, pcm, dataset, ubm_frames=None):
         rows.append((int(nz[0]), mel[m][nz[0]:nz[-1] + 1].astype(np.float64)))
     stride = max(len(w) for _, w in rows)
     print("mel stride:", stride)
-
-    w2 = signal.savgol_coeffs(9, 2, 2)  # device usa correlacao; janela simetrica
-    assert np.allclose(w2, w2[::-1]), "SG order2 deveria ser simetrico"
-    print("SG order2 interior:", np.round(w2, 6))
 
     # DCT-II ortonormal N_MFCC x N_MELS (== scipy.fft.dct(type=2, norm='ortho')):
     # evita cos() em double (emulado) no ESP32-S3.
@@ -68,7 +63,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
 
     with open(mfcc_dir / "mfcc_tables.h", "w") as f:
         f.write("// GERADO por tools/export_mfcc.py — não editar à mão.\n")
-        f.write(f"// librosa {librosa.__version__} | sr=16000 bandpass 80-7920 SOS(5) mel{N_MELS} htk\n#pragma once\n")
+        f.write(f"// DSP puro (NumPy/SciPy) | sr=16000 bandpass 80-7920 SOS(5) mel{N_MELS} htk\n#pragma once\n")
         f.write("#include <stdint.h>\n\n#define MFCC_N_SOS 5\n");
         f.write("static const float MFCC_SOS[5][6] = {\n")
         for row in sos:
@@ -88,9 +83,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
             if stride > len(w):
                 vals += ", " + ", ".join(["0.0f"] * (stride - len(w)))
             f.write(f"    {{{vals}}},\n")
-        f.write("};\n\n// Savitzky-Golay order=2 width=9 interior (simetrico; bordas = mesma janela nos 9 1os/ultimos)\n")
-        f.write("static const float MFCC_SG2[9] = {%s};\n" % ", ".join(C(v) for v in w2))
-        f.write(f"\n// DCT-II ortho {N_MFCC}x{N_MELS} (dot float no firmware; sem cos emulado)\n")
+        f.write(f"}};\n\n// DCT-II ortho {N_MFCC}x{N_MELS} (dot float no firmware; sem cos emulado)\n")
         f.write(f"static const float MFCC_DCT[{N_MFCC}][{N_MELS}] = {{\n")
         for row in dct:
             f.write("    {%s},\n" % ", ".join(C(v) for v in row))
@@ -101,11 +94,12 @@ def generate(staging, pcm, dataset, ubm_frames=None):
     pcm.astype("<i2").tofile(test_dir / "test_pcm.bin")
     for name, data in [("expected_bp", yf), ("expected_mfcc", m), ("expected_mean", m.mean(axis=1))]:
         data.astype("<f4").tofile(test_dir / (name + ".bin"))
-    p37 = np.abs(librosa.stft(yf, n_fft=N_FFT, hop_length=HOP_LENGTH,
-                               center=True, pad_mode="constant")[:, 37]) ** 2
-    mel37 = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS, htk=True) @ p37
+    p37 = power(yf)[:, 37]
+    mel37 = mel @ p37
+    db37 = 10.0 * np.log10(np.maximum(mel37, 1e-10))
+    db37 = np.maximum(db37, db37.max() - 80.0)
     for name, data in [("expected_pow37", p37), ("expected_mel37", mel37),
-                       ("expected_db37", librosa.power_to_db(mel37))]:
+                       ("expected_db37", db37)]:
         data.astype("<f4").tofile(test_dir / (name + ".bin"))
     names = sorted(set(dataset.labels))
     labels = [names.index(n) for n in dataset.labels]
@@ -113,7 +107,7 @@ def generate(staging, pcm, dataset, ubm_frames=None):
         f.write('// GERADO por tools/export_mfcc.py; requer recalibrar tau.\n#pragma once\n#include <stdint.h>\n')
         f.write(f'#define ENROLL_DEFAULT_NSPK {len(names)}\n#define ENROLL_DEFAULT_NVEC {len(labels)}\n')
         f.write(f'static const char *ENROLL_DEFAULT_NAMES[{len(names)}] = {{' + ', '.join(json.dumps(n) for n in names) + '};\n')
-        f.write(f'static const float ENROLL_DEFAULT_VECS[{len(labels)}][{3 * N_MFCC}] = {{\n')
+        f.write(f'static const float ENROLL_DEFAULT_VECS[{len(labels)}][{MFCC_DIM}] = {{\n')
         for row in dataset.vectors:
             f.write('    {' + ', '.join(C(v) for v in row) + '},\n')
         f.write('};\n')
@@ -181,8 +175,6 @@ def main():
     parser.add_argument('--vad', type=int, default=300)
     args = parser.parse_args()
     try:
-        if librosa.__version__ != '1.0.0':
-            raise ValueError('Export exige librosa==1.0.0')
         pcm = load_audio(args.fixture_wav)[:WIN_SAMPLES]
         if len(pcm) != WIN_SAMPLES:
             raise ValueError('Fixture exige pelo menos 2 s de áudio')
@@ -208,8 +200,9 @@ def main():
         with tempfile.TemporaryDirectory(prefix='recvoz-export-') as tmp:
             staging = Path(tmp)
             generate(staging, pcm, dataset, ubm_frames=ubm_frames)
-            manifest = {'pipeline': 'pcm-window-32000-v1', 'librosa': librosa.__version__,
-                        'vad': args.vad, 'noise': 'auto-session-profile', 'skip_c0': True,
+            manifest = {'pipeline': 'pcm-window-32000-htk40-17c-nod2', 'n_mels': N_MELS,
+                        'n_mfcc': N_MFCC, 'dim': MFCC_DIM,
+                        'vad': args.vad, 'noise': 'voice-wiener-auto', 'skip_c0': True,
                         'input_sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                                          for p in sorted(args.audio_dir.glob('locutor_*.wav'))},
                         'fixture_sha256': hashlib.sha256(args.fixture_wav.read_bytes()).hexdigest()}

@@ -1,8 +1,10 @@
 {
-  "pipeline": "pcm-window-32000-v1",
-  "librosa": "1.0.0",
+  "pipeline": "pcm-window-32000-htk40-17c-nod2",
+  "n_mels": 40,
+  "n_mfcc": 17,
+  "dim": 34,
   "vad": 300,
-  "noise": "auto-session-profile",
+  "noise": "voice-wiener-auto",
   "skip_c0": true,
   "input_sha256": {
     "locutor_s1_s1.wav": "233b747b0e93ef0564402c6731a36e9fce6e3c22990c2f35b770de3d120f5977",

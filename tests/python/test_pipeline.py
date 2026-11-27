@@ -18,7 +18,7 @@ class PipelineTests(unittest.TestCase):
         pcm = np.full(32000, 1000, dtype=np.int16)
         windows = list(voiced_windows(pcm))
         self.assertEqual(len(windows), 1)
-        self.assertEqual(pipeline(windows[0] / 32768)[0].shape, (51, 126))
+        self.assertEqual(pipeline(windows[0] / 32768)[0].shape, (34, 126))
         self.assertEqual(list(voiced_windows(np.zeros(32000, dtype=np.int16))), [])
         # Timeout descarta fala insuficiente em uma janela de 10 segundos.
         sparse = np.r_[pcm[:1600], np.zeros(1600 * 99, dtype=np.int16), pcm[:30400]]

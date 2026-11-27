@@ -71,12 +71,12 @@ static void frame_comp_logp(const float *x, const float *means_Mx24, float *out_
     for (int m = 0; m < GMM_UBM_M; m++) {
         const float *mu = means_Mx24 ? (means_Mx24 + m * GMM_UBM_D) : GMM_UBM_MEANS[m];
         const float *iv = GMM_UBM_INVVAR[m];
-        double maha = 0.0;
+        float maha = 0.0f;
         for (int d = 0; d < GMM_UBM_D; d++) {
-            double diff = (double)x[d] - (double)mu[d];
-            maha += diff * diff * (double)iv[d];
+            float diff = x[d] - mu[d];
+            maha += diff * diff * iv[d];
         }
-        out_logp[m] = GMM_UBM_LOGW[m] + GMM_UBM_LOGCONST[m] - 0.5f * (float)maha;
+        out_logp[m] = GMM_UBM_LOGW[m] + GMM_UBM_LOGCONST[m] - 0.5f * maha;
     }
 }
 
@@ -85,10 +85,10 @@ static float logsumexp_m(const float *logp)
     float mx = logp[0];
     for (int m = 1; m < GMM_UBM_M; m++)
         if (logp[m] > mx) mx = logp[m];
-    double s = 0.0;
+    float s = 0.0f;
     for (int m = 0; m < GMM_UBM_M; m++)
-        s += exp((double)logp[m] - (double)mx);
-    return mx + (float)log(s);
+        s += expf(logp[m] - mx);
+    return mx + logf(s);
 }
 
 float gmm_logpdf_cmn(const float *Tx24, int n_frames, const float *means_Mx24)

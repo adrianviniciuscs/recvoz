@@ -11,7 +11,7 @@ extern "C" {
  *  componente `knn`; aqui montamos a base e delegamos a decisão a ele.
  *  Base = 2 locutores de fábrica (enroll_default.h) + até 3 extras em NVS.
  */
-#define SPK_DIM 51
+#define SPK_DIM 34
 #define SPK_EXTRA_MAX 3
 #define SPK_EXTRA_VECS 8   ///< 15 s de enroll = 7 janelas de 2 s (cabe)
 #define SPK_NAME_LEN 16

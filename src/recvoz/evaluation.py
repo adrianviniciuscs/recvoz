@@ -97,7 +97,7 @@ def main():
         data = load_dataset(args.audio_dir, args.vad, noise)
         report = {'protocol': 'session-holdout-v1', 'vad': args.vad, 'skip_c0': True,
                   'noise': 'fixed-profile' if noise is not None else 'auto-session-profile',
-                  'versions': {p: version(p) for p in ['librosa', 'numpy', 'scipy', 'scikit-learn']},
+                  'versions': {p: version(p) for p in ['numpy', 'scipy', 'scikit-learn']},
                   'input_sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(args.audio_dir.glob('locutor_*.wav'))},
                   'closed_set': closed_set(data, args.seed)}
         if args.unknown_cal:

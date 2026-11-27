@@ -9,28 +9,31 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-import librosa
 import numpy as np
 import serial
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from scipy.fft import dct
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from recvoz.features import (  # noqa: E402
     N_FFT,
+    N_MELS,
     N_MFCC,
     TARGET_SR,
     VAD_CHUNK,
     WIN_SAMPLES,
     bandpass,
+    delta_sg,
     load_audio,
     load_dataset,
+    mel_filterbank,
     noise_profile,
     power,
 )
 
-MEL_FB = librosa.filters.mel(sr=TARGET_SR, n_fft=N_FFT, n_mels=40, htk=True)
+MEL_FB = mel_filterbank(sr=TARGET_SR, n_fft=N_FFT, n_mels=N_MELS)
 
 
 def find_ports():
@@ -117,8 +120,8 @@ def extract_mfcc(pcm, noise=None, mode="pre_mel", alpha=1.2, floor=0.05):
             mel = np.where(pos, np.maximum(snr / (snr + alpha), floor), 1.0) * mel
     db = 10.0 * np.log10(np.maximum(mel, 1e-10))
     db = np.maximum(db, db.max(axis=0, keepdims=True) - 80.0)
-    m = librosa.feature.mfcc(S=db, sr=TARGET_SR, n_mfcc=N_MFCC)
-    return np.vstack([m, librosa.feature.delta(m), librosa.feature.delta(m, order=2)])
+    m = dct(db, type=2, axis=0, norm="ortho")[:N_MFCC]
+    return np.vstack([m, delta_sg(m)])
 
 
 def frame_mod(m39):

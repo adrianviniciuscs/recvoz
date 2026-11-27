@@ -24,6 +24,7 @@ dados/
 
 # ESP-IDF (firmware em hardware/)
 hardware/**/build/
+hardware/**/managed_components/
 hardware/**/sdkconfig.old
 hardware/**/.vscode/
 

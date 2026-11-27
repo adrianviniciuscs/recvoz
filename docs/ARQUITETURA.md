@@ -45,15 +45,15 @@ o conjunto inteiro; não rode build e exportação simultaneamente.
 ## Configuração DSP
 
 16 kHz, PCM int16 mono, VAD passa-banda adaptativo ($\mathrm{RMS} > \max(300, 2\cdot\mathrm{RMS}_{\text{ruído}})$),
-Butterworth ordem 5 de 80 a 7920 Hz (`filtfilt` *in-place*), FFT 1024, hop 256,
+Butterworth ordem 5 de 80 a 7920 Hz (`filtfilt` *in-place*), FFT 1024 (SIMD `esp-dsp` no ESP32-S3), hop 256,
 filtro de Wiener espectral casado ao espectro médio da voz ($\alpha = 0{,}8$,
 piso $-13\text{ dB}$, *prior* vocal FLEURS PT-BR de 513 bins em Flash) com holdoff
-e guarda de estacionariedade, 40 bandas **Mel HTK**, 17 MFCC ($c_0\dots c_{16}$) + Δ + ΔΔ (51 dims, 126 frames) e
+e guarda de estacionariedade, 40 bandas **Mel HTK**, 17 MFCC ($c_0\dots c_{16}$) + Δ (34 dims, 126 frames, sem $\Delta^2$) e
 veto de ruído por modulação articulatória (`mod`).
 A classificação principal usa **GMM-UBM diagonal** (componente independente
-`gmm_ubm`, $M = 8$, $D = 32$ em $c_1\dots c_{16} + \Delta c_1\dots \Delta c_{16}$)
+`gmm_ubm`, $M = 8$, $D = 32$ em $c_1\dots c_{16} + \Delta c_1\dots \Delta c_{16}$, FPU `float32`)
 com **Frame-VAD** (top 70% de $c_0$, 88 quadros ativos), **CMN seletiva em $c_1$**
-e adaptação MAP incremental ($r = 8{,}0$, $1024\text{ B}$ por locutor na NVS). O
+e adaptação MAP incremental ($r = 8{,}0$, $1024\text{ B}$ por locutor na NVS). A referência Python é implementada em NumPy/SciPy puro (sem dependência do `librosa`). O
 $k$-NN legado (sem $c_0$, $k = 3$, distância cosseno) permanece disponível para
 comparação e testes históricos. O piso de 80 dB é aplicado por frame, como no
 firmware.

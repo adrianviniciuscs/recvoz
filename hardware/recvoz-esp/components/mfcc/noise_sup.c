@@ -3,7 +3,7 @@
 #include "noise_sup.h"
 #include "voice_prior.h"
 
-#define NS_ANCHOR_DIM 51
+#define NS_ANCHOR_DIM 34
 
 static float s_N[NS_BINS];            // perfil médio do ruído (~2 KB)
 static float s_anchor[NS_ANCHOR_DIM]; // âncora MFCC do ruído ambiente
